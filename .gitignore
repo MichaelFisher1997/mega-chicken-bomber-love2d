@@ -29,3 +29,6 @@ Thumbs.db
 # Love2D specific
 /cache/
 /save/
+
+
+*.zip

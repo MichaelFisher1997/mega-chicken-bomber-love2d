@@ -55,21 +55,27 @@ end
 
 function AssetManager:loadImages()
     -- Load tile images
-    self:loadImage("wall", "assets/images/Tiles/OuterWall.png")
-    self:loadImage("box", "assets/images/Tiles/Box.png")
-    self:loadImage("floor", "assets/images/Tiles/Leafs.png")
-    self:loadImage("indestructible", "assets/images/Tiles/Tree.png")
+    self:loadImage("wall", "assets/images/tiles/OuterWall.png")
+    self:loadImage("box", "assets/images/tiles/Box.png")
+    self:loadImage("floor", "assets/images/tiles/Leafs.png")
+    self:loadImage("indestructible", "assets/images/tiles/Tree.png")
     
-    -- Load SVG sprites
-    self:loadImage("player", "assets/images/Chicken.png")
-    self:loadImage("bomb", "assets/images/Bomb.png")
-    self:loadImage("explosion", "assets/images/Explosion.png")
-    self:loadImage("powerup_heart", "assets/images/Heart.png")
-    self:loadImage("powerup_speed", "assets/images/Speed.png")
-    self:loadImage("powerup_ammo", "assets/images/Ammo.png")
-    self:loadImage("powerup_range", "assets/images/Range.png")
-    self:loadImage("death", "assets/images/Death.png")
-    self:loadImage("start_button", "assets/images/Start.png")
+    -- Load player sprites
+    self:loadImage("player", "assets/images/player/Chicken.png")
+    self:loadImage("death", "assets/images/player/Death.png")
+    
+    -- Load bomb sprites
+    self:loadImage("bomb", "assets/images/bombs/Bomb.png")
+    self:loadImage("explosion", "assets/images/bombs/Explosion.png")
+    
+    -- Load powerup sprites
+    self:loadImage("powerup_heart", "assets/images/powerups/Heart.png")
+    self:loadImage("powerup_speed", "assets/images/powerups/Speed.png")
+    self:loadImage("powerup_ammo", "assets/images/powerups/Ammo.png")
+    self:loadImage("powerup_range", "assets/images/powerups/Range.png")
+    
+    -- Load UI sprites
+    self:loadImage("start_button", "assets/images/ui/Start.png")
 end
 
 function AssetManager:loadSounds()
