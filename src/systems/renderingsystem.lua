@@ -18,8 +18,10 @@ end
 
 function RenderingSystem:draw()
     -- Draw all entities with transforms
+    print("RenderingSystem: Drawing " .. #self.entities .. " entities")
     for _, entity in pairs(self.entities) do
         if entity.active then
+            print("  Drawing entity ID: " .. entity.id .. ", Tags: " .. table.concat(entity.tags, ", "))
             self:drawEntity(entity)
         end
     end
@@ -29,14 +31,17 @@ function RenderingSystem:drawEntity(entity)
     local transform = entity:getComponent("transform")
     
     if not transform then return end
-    
+
+    -- Debug print transform values
+    print(string.format("    Transform for entity ID %d: x=%.2f, y=%.2f, w=%.2f, h=%.2f", entity.id, transform.x, transform.y, transform.width, transform.height))
+
     -- Draw based on entity type (tags)
     if entity:hasTag("player") then
         self:drawPlayer(entity, transform)
-    elseif entity:hasTag("wall") then
-        self:drawWall(entity, transform)
     elseif entity:hasTag("box") then
         self:drawBox(entity, transform)
+    elseif entity:hasTag("wall") then
+        self:drawWall(entity, transform)
     elseif entity:hasTag("bomb") then
         self:drawBomb(entity, transform)
     elseif entity:hasTag("explosion") then
@@ -47,7 +52,7 @@ function RenderingSystem:drawEntity(entity)
 end
 
 function RenderingSystem:drawPlayer(entity, transform)
-    local image = self.assetManager:getImage("Chicken")
+    local image = self.assetManager:getImage("player")
     if image then
         love.graphics.setColor(1, 1, 1)
         love.graphics.draw(image, transform.x, transform.y, 0,
@@ -62,7 +67,7 @@ function RenderingSystem:drawPlayer(entity, transform)
 end
 
 function RenderingSystem:drawWall(entity, transform)
-    local imageName = entity:hasTag("indestructible") and "Tiles/Tree" or "Tiles/OuterWall"
+    local imageName = entity:hasTag("indestructible") and "indestructible" or "wall"
     local image = self.assetManager:getImage(imageName)
     
     if image then
@@ -79,7 +84,7 @@ function RenderingSystem:drawWall(entity, transform)
 end
 
 function RenderingSystem:drawBox(entity, transform)
-    local image = self.assetManager:getImage("Tiles/Leafs")
+    local image = self.assetManager:getImage("box")
     if image then
         love.graphics.setColor(1, 1, 1)
         love.graphics.draw(image, transform.x, transform.y, 0,
@@ -94,7 +99,7 @@ function RenderingSystem:drawBox(entity, transform)
 end
 
 function RenderingSystem:drawBomb(entity, transform)
-    local image = self.assetManager:getImage("Bomb")
+    local image = self.assetManager:getImage("bomb")
     if image then
         love.graphics.setColor(1, 1, 1)
         love.graphics.draw(image, transform.x, transform.y, 0,

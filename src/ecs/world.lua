@@ -106,6 +106,13 @@ function World:getEntitiesWithTag(tag)
     return result
 end
 
+function World:addEntityToSystems(entity)
+    -- Add the entity to all existing systems that it meets requirements for
+    for _, system in ipairs(self.systems) do
+        system:addEntity(entity)
+    end
+end
+
 function World:clear()
     -- Destroy all entities
     for _, entity in pairs(self.entities) do

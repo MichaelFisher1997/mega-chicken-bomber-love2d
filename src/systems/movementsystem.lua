@@ -11,15 +11,12 @@ function MovementSystem:new()
     setmetatable(system, self)
     
     system.requirements = {"transform", "movement", "gridPosition"}
-    system.moveCooldown = 0
-    system.moveDelay = 0.15 -- seconds between moves
+
     
     return system
 end
 
 function MovementSystem:update(dt)
-    self.moveCooldown = math.max(0, self.moveCooldown - dt)
-    
     -- Process all entities with movement
     for _, entity in pairs(self.entities) do
         if entity.active then
@@ -68,7 +65,6 @@ function MovementSystem:handlePlayerMovement(entity)
 end
 
 function MovementSystem:moveEntity(entity, dx, dy)
-    if self.moveCooldown > 0 then return end
     
     local gridPos = entity:getComponent("gridPosition")
     local movement = entity:getComponent("movement")
@@ -87,7 +83,6 @@ function MovementSystem:moveEntity(entity, dx, dy)
     if self:canMoveTo(newRow, newCol, entity) then
         -- Move to new position
         gridPos:setPosition(newRow, newCol)
-        self.moveCooldown = self.moveDelay
         
         -- Check for power-up collection
         self:checkPowerUpCollection(entity, newRow, newCol)

@@ -104,6 +104,9 @@ function GameState:createPlayer(row, col)
     player:addComponent("gridPosition", GridPosition:new(row, col))
     player:addComponent("movement", Movement:new(Config.PLAYER_SPEED))
     player:addComponent("collision", Collision:new(0.8, 0.8, 0.1, 0.1))
+
+    -- Add entity to systems after all initial components are added
+    self.world:addEntityToSystems(player)
     
     self.player = player
     return player
@@ -160,6 +163,9 @@ function GameState:createWall(row, col, wallType)
     wall:addComponent("transform", Transform:new(0, 0, 0, 0))
     wall:addComponent("gridPosition", GridPosition:new(row, col))
     wall:addComponent("collision", Collision:new(1, 1, 0, 0))
+
+    -- Add entity to systems after all initial components are added
+    self.world:addEntityToSystems(wall)
     
     return wall
 end
@@ -226,6 +232,9 @@ function GameState:createBomb(row, col)
     bomb:addComponent("timer", Timer:new(Config.BOMB_TIMER, function()
         self:explodeBomb(bomb)
     end))
+
+    -- Add entity to systems after all initial components are added
+    self.world:addEntityToSystems(bomb)
     
     return bomb
 end
@@ -264,14 +273,26 @@ function GameState:createExplosion(row, col)
                 break
             end
             
-            -- Check for indestructible walls
-            local walls = self.world:getEntitiesWithTag("indestructible")
+            -- Check for indestructible walls and outer walls
+            local indestructibleWalls = self.world:getEntitiesWithTag("indestructible")
+            local outerWalls = self.world:getEntitiesWithTag("wall")
             local blocked = false
-            for _, wall in ipairs(walls) do
+
+            for _, wall in ipairs(indestructibleWalls) do
                 local wallPos = wall:getComponent("gridPosition")
                 if wallPos and wallPos.row == newRow and wallPos.col == newCol then
                     blocked = true
                     break
+                end
+            end
+
+            if not blocked then
+                for _, wall in ipairs(outerWalls) do
+                    local wallPos = wall:getComponent("gridPosition")
+                    if wallPos and wallPos.row == newRow and wallPos.col == newCol then
+                        blocked = true
+                        break
+                    end
                 end
             end
             
@@ -308,6 +329,9 @@ function GameState:createExplosionPart(row, col)
     explosion:addComponent("transform", Transform:new(0, 0, 0, 0))
     explosion:addComponent("gridPosition", GridPosition:new(row, col))
     explosion:addComponent("lifetime", Lifetime:new(Config.EXPLOSION_DURATION))
+
+    -- Add entity to systems after all initial components are added
+    self.world:addEntityToSystems(explosion)
     
     return explosion
 end
@@ -337,6 +361,9 @@ function GameState:createPowerUp(row, col)
     powerup:addComponent("transform", Transform:new(0, 0, 0, 0))
     powerup:addComponent("gridPosition", GridPosition:new(row, col))
     powerup:addComponent("powerup", PowerUp:new(type))
+
+    -- Add entity to systems after all initial components are added
+    self.world:addEntityToSystems(powerup)
     
     return powerup
 end
@@ -370,7 +397,7 @@ function GameState:drawGridBackground()
     local tileSize = self.gridSystem:getTileSize()
     
     -- Draw floor tiles for background
-    local floorImage = self.assetManager:getImage("Tiles/Box.png")
+    local floorImage = self.assetManager:getImage("floor")
     if floorImage then
         love.graphics.setColor(1, 1, 1)
         for row = 0, Config.GRID_ROWS - 1 do

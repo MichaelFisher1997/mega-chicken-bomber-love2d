@@ -58,14 +58,14 @@ function AssetManager:loadImages()
     self:loadImage("indestructible", "assets/images/Tiles/Tree.png")
     
     -- Load SVG sprites
-    self:loadImage("player", "assets/images/Chicken.svg")
-    self:loadImage("bomb", "assets/images/Bomb.svg")
-    self:loadImage("explosion", "assets/images/Explosion.svg")
-    self:loadImage("powerup_bomb", "assets/images/Ammo.svg")
-    self:loadImage("powerup_range", "assets/images/Range.svg")
-    self:loadImage("powerup_speed", "assets/images/Speed.svg")
-    self:loadImage("heart", "assets/images/Heart.svg")
-    self:loadImage("start_button", "assets/images/Start.svg")
+    self:loadImage("player", "assets/images/Chicken.png")
+    self:loadImage("bomb", "assets/images/Bomb.png")
+    self:loadImage("explosion", "assets/images/Explosion.png")
+    self:loadImage("powerup_bomb", "assets/images/Ammo.png")
+    self:loadImage("powerup_range", "assets/images/Range.png")
+    self:loadImage("powerup_speed", "assets/images/Speed.png")
+    self:loadImage("heart", "assets/images/Heart.png")
+    self:loadImage("start_button", "assets/images/Start.png")
 end
 
 function AssetManager:loadSounds()
