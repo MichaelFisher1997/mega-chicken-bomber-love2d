@@ -30,4 +30,8 @@ function TimerSystem:update(dt)
     end
 end
 
+function TimerSystem:draw()
+    -- Timer system doesn't need to draw anything
+end
+
 return TimerSystem

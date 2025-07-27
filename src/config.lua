@@ -19,14 +19,18 @@ Config.PLAYER_START_LIVES = 3
 Config.BOMB_TIMER = 3.0 -- seconds
 Config.EXPLOSION_DURATION = 0.5 -- seconds
 Config.INVINCIBILITY_DURATION = 2.0 -- seconds
-Config.POWERUP_DROP_CHANCE = 0.3 -- 30%
+Config.POWERUP_DROP_CHANCE = 0.5 -- 50% (adjustable during gameplay with +/- keys)
 
 -- Player settings
-Config.PLAYER_SPEED = 2.5 -- tiles per second
+Config.PLAYER_SPEED = 4.0 -- tiles per second (increased for responsiveness)
 Config.PLAYER_START_BOMBS = 1
 Config.PLAYER_START_RANGE = 1
+Config.PLAYER_START_HEALTH = 3
 Config.PLAYER_MAX_BOMBS = 8
-Config.PLAYER_MAX_RANGE = 8
+Config.PLAYER_MAX_RANGE = 12
+Config.PLAYER_MAX_HEALTH = 5
+Config.PLAYER_MAX_SPEED = 6.0
+Config.SPEED_POWERUP_INCREASE = 0.5 -- additional tiles per second
 
 -- Colors (RGB normalized 0-1)
 Config.COLORS = {
@@ -37,7 +41,9 @@ Config.COLORS = {
     PLAYER = {1.0, 0.0, 0.0},
     BOMB = {0.8, 0.2, 0.2},
     EXPLOSION = {1.0, 0.8, 0.0},
-    POWERUP_BOMB = {0.8, 0.4, 0.8},
+    POWERUP_HEART = {1.0, 0.2, 0.2},
+    POWERUP_SPEED = {0.2, 0.8, 1.0},
+    POWERUP_AMMO = {0.8, 0.4, 0.8},
     POWERUP_RANGE = {0.4, 0.8, 0.4},
     TEXT = {1.0, 1.0, 1.0},
     UI_BG = {0.15, 0.15, 0.15},

@@ -10,6 +10,19 @@ function Movement:new(speed)
         velocityY = 0,
         direction = "down", -- up, down, left, right
         isMoving = false,
+        
+        -- New smooth movement properties
+        targetRow = nil,
+        targetCol = nil,
+        startRow = nil,
+        startCol = nil,
+        moveProgress = 0,
+        moveSpeed = speed or Config.PLAYER_SPEED,
+        
+        -- Input tracking for continuous movement
+        inputX = 0,
+        inputY = 0,
+        
         entity = nil
     }
     setmetatable(movement, self)

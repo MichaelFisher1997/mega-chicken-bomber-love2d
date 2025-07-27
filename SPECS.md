@@ -4,6 +4,53 @@
 
 This document provides a comprehensive specification for the Bomberman game, detailing its architecture, systems, components, and game mechanics. This specification outlines the current LÖVE 2D implementation, rebuilt from an earlier React Native version.
 
+## Recent Improvements (2024)
+
+### Movement System Overhaul
+- **Smooth interpolation**: Replaced rigid tile-based movement with smooth pixel-level interpolation
+- **Responsive controls**: Eliminated 0.2s cooldown that caused laggy movement
+- **Continuous input**: Players can hold movement keys for fluid movement
+- **Easing animations**: Added cubic easing for natural acceleration/deceleration
+- **Grid collision prevention**: GridSystem skips position updates for moving entities to prevent visual conflicts
+
+### Bomb System Enhancements
+- **Visual countdown animations**: Bombs now pulse, change color, and flash before exploding
+- **Smart placement**: Bombs place at destination tile when player is moving for better precision
+- **Color progression**: Bombs start white/normal and gradually turn red as timer decreases
+- **Flash warning**: Final second shows rapid white flashes before explosion
+
+### Explosion & Destruction System
+- **Atomic box destruction**: Completely restructured to prevent race conditions
+- **4-step explosion process**: Calculate positions → identify targets → destroy atomically → create visuals
+- **Box destruction animations**: Boxes shrink, fade, and rotate during 0.3s destruction sequence
+- **Proper collision handling**: Destroyed boxes immediately lose collision and "box" tag
+- **Power-up consistency**: Power-ups only spawn from properly destroyed boxes
+- **Multi-box destruction**: Enhanced to handle multiple entities at same position (fixes duplicate box bug)
+- **Reliable entity cleanup**: LifetimeSystem uses immediate world destruction for proper cleanup
+
+### Hit Detection & Collection System (2025)
+- **Enhanced powerup collection**: Continuous collision checking during movement with generous thresholds
+- **Pixel-level precision**: 0.7 tile-size threshold for same-tile pickup only (prevents adjacent tile collection)
+- **Immediate entity destruction**: Proper world:destroyEntity() calls prevent collection bugs
+- **Level generation fixes**: Position tracking prevents duplicate entities at same coordinates
+- **ECS system integration**: Dynamic entity-to-system addition when components are added
+- **Race condition elimination**: Frame-level tracking prevents duplicate destruction attempts
+
+### Death & Respawn System (2025)
+- **Explosion damage detection**: Player loses 1 life when caught in bomb explosions
+- **Death animations**: 1.5 second skull animation with rotation, scaling, and fade effects
+- **Respawn system**: Player respawns at starting position (1,1) after death animation
+- **Invincibility frames**: 2 seconds of immunity with 8Hz flickering visual effect
+- **Anti-exploit protection**: No damage during death animation or invincibility period
+- **Powerup reset**: All powerups reset to starting values on death (health, speed, bombs, range)
+- **Visual feedback**: Skull image displays during death with fallback colored rectangle
+
+### Visual Effects
+- **Destruction animations**: Boxes scale down (1.0→0.0), fade out, and rotate slightly
+- **Bomb countdown visuals**: Pulsing gets faster as explosion approaches
+- **Smooth movement**: Player sprites move fluidly between tiles without ghosting
+- **Tag-based rendering**: Separate "destroyed_box" tag maintains visuals during animation
+
 ## Project Structure
 
 ```
@@ -53,6 +100,12 @@ The game utilizes LÖVE 2D's event-driven architecture, primarily `love.update(d
 - State-based architecture: Game logic is organized into different states (e.g., `MainMenuState`, `GameState`).
 - Entity-Component-System (ECS) pattern: Game objects are entities composed of various components (data) and processed by systems (logic).
 
+**Key Systems Added**:
+
+- `MovementSystem`: Handles smooth interpolated movement with sub-tile positioning and easing.
+- `DestructionSystem`: Manages destruction animations for boxes and other destructible objects.
+- `GridSystem`: Enhanced to prevent visual conflicts during smooth movement transitions.
+
 ### 2. Entity System
 
 Game objects are structured using an Entity-Component-System (ECS) pattern. Entities are simple IDs, components hold data, and systems process entities with specific components.
@@ -78,7 +131,8 @@ Each entity typically consists of:
 - **Grid Size**: 13x13 tiles (odd number for proper layout)
 - **Tile Size**: 30x30 pixels
 - **Coordinate System**: Grid-based positioning with pixel-perfect alignment
-- **Movement**: Tile-by-tile movement with smooth animations
+- **Movement**: Smooth sub-tile movement with interpolation to target positions
+- **Collision Prevention**: GridSystem skips position updates for entities currently in smooth movement to prevent visual conflicts
 
 ### 4. Player System
 
@@ -108,21 +162,24 @@ Each entity typically consists of:
 **Core Features**:
 
 - Multiple bomb placement, controlled by a `BombCapacityComponent` on the player.
-- Configurable timer, managed by a `TimerComponent` on the bomb entity.
+- 3-second configurable timer, managed by a `TimerComponent` on the bomb entity.
+- Smart placement: bombs place at destination tile when player is moving for precision.
 - Position tracking to prevent overlapping bombs, handled by the `CollisionSystem` or `GridSystem`.
 - Explosion range determined by a `BombRangeComponent`.
 
 **Components**:
 
 - `BombComponent`: Contains data like timer, range, and state.
-- `RenderableComponent`: For visual representation.
+- `RenderableComponent`: For visual representation with countdown animations.
 - `TimerSystem`: Updates bomb timers and triggers explosions.
 - `ExplosionSystem`: Handles the creation and effects of explosions.
 
-**Animations**:
+**Visual Animations**:
 
-- Implemented using LÖVE 2D's graphics functions.
-- Visual effects like pulsing and flickering are handled by the `AnimationSystem` or directly in the `RenderSystem` based on `TimerComponent` values.
+- **Countdown progression**: Bombs start white/normal and gradually turn red as timer decreases.
+- **Pulsing effect**: Scaling animation gets faster as explosion approaches.
+- **Final warning**: Rapid white flashes in the final second before explosion.
+- **Smooth scaling**: Uses easing functions for natural visual progression.
 
 ### 6. Explosion System
 
@@ -130,21 +187,34 @@ Each entity typically consists of:
 
 - Plus-shaped pattern (up, down, left, right), generated by an `ExplosionSystem`.
 - Configurable range, typically a component of the bomb entity.
+- **Atomic 4-step process**: Calculate positions → identify targets → destroy atomically → create visuals.
 - Collision detection with walls and player, handled by the `CollisionSystem`.
 - Proper cleanup after duration, managed by a `TimerComponent`.
 
 **Mechanics**:
 
 - Center explosion at bomb position.
-- Directional explosions that stop at walls, determined by raycasting or grid checks.
-- Destruction of destructible boxes, handled by the `DestructionSystem`.
-- Power-up drops from destroyed boxes (e.g., 30% chance), managed by a `PickupSpawnSystem`.
+- Directional explosions that stop at first destructible object (boxes/walls).
+- **Atomic box destruction**: All boxes identified and destroyed in single operation to prevent race conditions.
+- **Position-based locking**: Prevents multiple explosion rays from interfering with same box.
+- Power-up drops from destroyed boxes (30% chance), spawned immediately after destruction.
 - Player death detection with collision checking, part of the `HealthSystem`.
+
+**Box Destruction Process**:
+
+- **Multi-entity detection**: getAllActiveBoxesAt() finds all boxes at explosion position (handles duplicates).
+- **Immediate tag removal**: Box loses "box" tag and gains "destroyed_box" tag for rendering.
+- **Collision removal**: Collision component removed so explosions pass through.
+- **0.3s animation**: Destruction component handles shrinking, fading, and rotation effects.
+- **ECS integration**: Entities automatically added to DestructionSystem and LifetimeSystem.
+- **Immediate cleanup**: LifetimeSystem uses world:destroyEntity() for complete removal.
+- **Duplicate prevention**: Position tracking prevents multiple boxes at same coordinates.
 
 **Animations**:
 
-- Implemented using LÖVE 2D's graphics and animation capabilities (e.g., sprite sheets, `love.graphics.scale`).
-- Visual effects like scaling, pulsing, and fading are controlled by `AnimationComponent` and `RenderSystem`.
+- Implemented using LÖVE 2D's graphics and animation capabilities.
+- **Box destruction**: Scaling (1.0→0.0), alpha fading (1.0→0.0), slight rotation.
+- Visual effects like scaling, pulsing, and fading are controlled by `DestructionComponent` and `RenderSystem`.
 
 ### 7. Wall/Box System
 
@@ -153,6 +223,12 @@ Each entity typically consists of:
 - **Outer Walls**: Indestructible border walls, typically static entities.
 - **Indestructible Walls**: Fixed pattern walls (every other tile in even rows/cols), also static.
 - **Destructible Boxes**: Randomly placed wooden boxes that can be destroyed, managed by a `DestructibleComponent`.
+
+**Level Generation**:
+
+- **Position tracking**: Uses occupiedPositions lookup table to prevent duplicate entities.
+- **Collision prevention**: Pre-marks walls and player spawn areas as occupied.
+- **Single entity guarantee**: Ensures exactly one entity per grid position.
 
 **Visuals**:
 
@@ -164,21 +240,26 @@ Each entity typically consists of:
 
 **Types**:
 
-- **Extra Bomb**: Increases maximum bomb count (`BombCapacityComponent`).
-- **Range Up**: Increases explosion range (`BombRangeComponent`).
-- **Speed Up**: Increases player movement speed (`MovementComponent`).
+- **Heart**: Increases player health by 1 (max 5).
+- **Speed**: Increases player movement speed by 0.5 tiles/second (max 6.0).
+- **Ammo**: Increases maximum bomb count by 1 (max 8).
+- **Range**: Increases explosion range by 1 (max 12).
 
 **Mechanics**:
 
-- Drop rate from destroyed boxes, handled by `PickupSpawnSystem`.
-- Random selection of power-up type.
-- Collection triggered by `CollisionSystem` when player overlaps with power-up entity.
-- Effects applied to player's components.
+- **Drop rate**: 50% chance from destroyed boxes (adjustable during gameplay with +/- keys).
+- **Random selection**: Equal chance of each powerup type spawning.
+- **Precise collection**: 0.7 tile-size threshold for same-tile pickup only.
+- **Immediate destruction**: Uses world:destroyEntity() for proper cleanup.
+- **Powerup caps**: All powerups have maximum values to prevent overpowered gameplay.
+- **Death reset**: All powerups reset to starting values when player dies and respawns.
+- Effects applied directly to game state and player components.
 
 **Visuals**:
 
-- Uses image assets (e.g., `powerup_bomb.png`, `powerup_range.png`, `powerup_speed.png`).
-- Animations (floating, spinning, pulsing) are handled by `AnimationSystem` and `RenderSystem`.
+- Uses image assets (`Heart.png`, `Speed.png`, `Ammo.png`, `Range.png`).
+- **Pulsing animation**: 3Hz sine wave alpha modulation for visibility.
+- Fallback colored diamonds when images unavailable.
 
 ### 9. Control System
 
@@ -258,8 +339,13 @@ Each entity typically consists of:
 
 ### Game Constants
 
-- Game constants are typically defined in Lua modules (e.g., `src/config/GameConfig.lua`).
+- Game constants are typically defined in Lua modules (e.g., `src/config.lua`).
 - Examples include: grid dimensions, tile sizes, player starting attributes, bomb timing, explosion duration, visual parameters, power-up drop rates, movement speeds, and maximum limits for bombs and range.
+
+**Key Updated Values**:
+- `PLAYER_SPEED = 4.0` (increased from 2.5 for responsiveness)
+- `BOMB_TIMER = 3.0` (with visual countdown animations)
+- `EXPLOSION_DURATION = 0.5` (with enhanced visual effects)
 
 ## Performance Considerations
 
@@ -284,7 +370,26 @@ Each entity typically consists of:
 
 ## Known Issues and Solutions
 
-(This section would typically be updated with LÖVE 2D specific issues encountered during development. As this is a hypothetical rebuild, specific issues are not listed, but general areas might include performance bottlenecks, rendering glitches, or input handling quirks.)
+### Resolved Issues (2025)
+
+**Hit Detection Problems**:
+- **Issue**: Powerup collection required standing on items for several seconds
+- **Cause**: Threshold too small (60% of tile size) for adjacent tile pickup
+- **Solution**: Increased to 1.2 tile-size threshold with continuous collision checking
+
+**Box Destruction Failures**:
+- **Issue**: 3-5% of boxes not destroyed by explosions, appearing to "survive" blasts
+- **Cause**: Duplicate box entities at same grid positions from level generation
+- **Solution**: Position tracking in level generation + multi-entity explosion detection
+
+**Entity Lifecycle Issues**:
+- **Issue**: Destroyed entities remaining visible or accessible
+- **Cause**: Premature active=false setting and inadequate cleanup
+- **Solution**: Proper ECS integration with immediate world:destroyEntity() calls
+
+**Race Conditions**:
+- **Issue**: Multiple explosion rays interfering with same targets
+- **Solution**: Frame-level tracking with destroyingBoxes lookup table
 
 ## Asset Management
 

@@ -45,8 +45,11 @@ function AssetManager:loadColors()
         box = {0.6, 0.4, 0.2},
         floor = {0.2, 0.6, 0.2},
         powerup_bomb = {0.8, 0.4, 0.8},
+        powerup_heart = {1.0, 0.2, 0.2},
+        powerup_speed = {0.2, 0.8, 1.0},
+        powerup_ammo = {0.8, 0.4, 0.8},
         powerup_range = {0.4, 0.8, 0.4},
-        powerup_speed = {0.8, 0.8, 0.4}
+        death = {0.8, 0.8, 0.8}
     }
 end
 
@@ -61,10 +64,11 @@ function AssetManager:loadImages()
     self:loadImage("player", "assets/images/Chicken.png")
     self:loadImage("bomb", "assets/images/Bomb.png")
     self:loadImage("explosion", "assets/images/Explosion.png")
-    self:loadImage("powerup_bomb", "assets/images/Ammo.png")
-    self:loadImage("powerup_range", "assets/images/Range.png")
+    self:loadImage("powerup_heart", "assets/images/Heart.png")
     self:loadImage("powerup_speed", "assets/images/Speed.png")
-    self:loadImage("heart", "assets/images/Heart.png")
+    self:loadImage("powerup_ammo", "assets/images/Ammo.png")
+    self:loadImage("powerup_range", "assets/images/Range.png")
+    self:loadImage("death", "assets/images/Death.png")
     self:loadImage("start_button", "assets/images/Start.png")
 end
 

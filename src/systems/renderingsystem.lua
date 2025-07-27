@@ -18,10 +18,8 @@ end
 
 function RenderingSystem:draw()
     -- Draw all entities with transforms
-    print("RenderingSystem: Drawing " .. #self.entities .. " entities")
     for _, entity in pairs(self.entities) do
         if entity.active then
-            print("  Drawing entity ID: " .. entity.id .. ", Tags: " .. table.concat(entity.tags, ", "))
             self:drawEntity(entity)
         end
     end
@@ -32,13 +30,18 @@ function RenderingSystem:drawEntity(entity)
     
     if not transform then return end
 
-    -- Debug print transform values
-    print(string.format("    Transform for entity ID %d: x=%.2f, y=%.2f, w=%.2f, h=%.2f", entity.id, transform.x, transform.y, transform.width, transform.height))
-
     -- Draw based on entity type (tags)
     if entity:hasTag("player") then
         self:drawPlayer(entity, transform)
-    elseif entity:hasTag("box") then
+    elseif entity:hasTag("box") or entity:hasTag("destroyed_box") then
+        if entity:hasTag("destroyed_box") then
+            local destruction = entity:getComponent("destruction")
+            if destruction then
+                print("[RENDER] Drawing destroyed_box", entity.id, "progress:", destruction:getProgress(), "destroying:", destruction.isDestroying)
+            else
+                print("[RENDER] Drawing destroyed_box", entity.id, "but NO destruction component!")
+            end
+        end
         self:drawBox(entity, transform)
     elseif entity:hasTag("wall") then
         self:drawWall(entity, transform)
@@ -52,6 +55,21 @@ function RenderingSystem:drawEntity(entity)
 end
 
 function RenderingSystem:drawPlayer(entity, transform)
+    -- Check for death animation
+    local death = entity:getComponent("death")
+    if death and death.isDying then
+        self:drawDeathAnimation(entity, transform, death)
+        return
+    end
+    
+    -- Check for invincibility flickering
+    local invincibility = entity:getComponent("invincibility")
+    if invincibility and invincibility:shouldFlicker() then
+        -- Skip drawing to create flicker effect
+        return
+    end
+    
+    -- Normal player rendering
     local image = self.assetManager:getImage("player")
     if image then
         love.graphics.setColor(1, 1, 1)
@@ -63,6 +81,41 @@ function RenderingSystem:drawPlayer(entity, transform)
         love.graphics.setColor(Config.COLORS.PLAYER)
         love.graphics.rectangle("fill", transform.x, transform.y,
                                transform.width, transform.height)
+    end
+end
+
+function RenderingSystem:drawDeathAnimation(entity, transform, death)
+    local image = self.assetManager:getImage("death")
+    local progress = death:getProgress()
+    
+    -- Create shrinking and rotation effect
+    local scale = 1.0 - (progress * 0.5) -- Shrink to 50% of original size
+    local rotation = progress * math.pi * 2 -- Full rotation during death
+    local alpha = 1.0 - (progress * 0.3) -- Slight fade
+    
+    if image then
+        love.graphics.setColor(1, 1, 1, alpha)
+        
+        -- Draw with rotation and scaling from center
+        local centerX = transform.x + transform.width / 2
+        local centerY = transform.y + transform.height / 2
+        local scaleX = (transform.width / image:getWidth()) * scale
+        local scaleY = (transform.height / image:getHeight()) * scale
+        
+        love.graphics.draw(image, centerX, centerY, rotation, scaleX, scaleY,
+                          image:getWidth() / 2, image:getHeight() / 2)
+    else
+        -- Fallback to colored rectangle with death effect
+        love.graphics.setColor(0.8, 0.8, 0.8, alpha)
+        local shrunkWidth = transform.width * scale
+        local shrunkHeight = transform.height * scale
+        local offsetX = (transform.width - shrunkWidth) / 2
+        local offsetY = (transform.height - shrunkHeight) / 2
+        
+        love.graphics.rectangle("fill", 
+                               transform.x + offsetX, 
+                               transform.y + offsetY,
+                               shrunkWidth, shrunkHeight)
     end
 end
 
@@ -84,34 +137,109 @@ function RenderingSystem:drawWall(entity, transform)
 end
 
 function RenderingSystem:drawBox(entity, transform)
+    local destruction = entity:getComponent("destruction")
+    local scale = 1.0
+    local alpha = 1.0
+    local rotation = 0
+    
+    -- Apply destruction animation effects
+    if destruction and destruction.isDestroying then
+        scale = destruction:getCurrentScale()
+        alpha = destruction:getCurrentAlpha()
+        -- Add slight rotation during destruction
+        rotation = destruction:getProgress() * math.pi * 0.5
+    end
+    
+    local centerX = transform.x + transform.width / 2
+    local centerY = transform.y + transform.height / 2
+    
     local image = self.assetManager:getImage("box")
     if image then
-        love.graphics.setColor(1, 1, 1)
-        love.graphics.draw(image, transform.x, transform.y, 0,
-                          transform.width / image:getWidth(),
-                          transform.height / image:getHeight())
+        love.graphics.setColor(1, 1, 1, alpha)
+        
+        local scaleX = (transform.width / image:getWidth()) * scale
+        local scaleY = (transform.height / image:getHeight()) * scale
+        
+        love.graphics.draw(image, centerX, centerY, rotation, scaleX, scaleY,
+                          image:getWidth() / 2, image:getHeight() / 2)
     else
-        -- Fallback to colored rectangle
-        love.graphics.setColor(Config.COLORS.BOX)
-        love.graphics.rectangle("fill", transform.x, transform.y,
-                               transform.width, transform.height)
+        -- Fallback to colored rectangle with destruction effects
+        love.graphics.setColor(Config.COLORS.BOX[1], Config.COLORS.BOX[2], Config.COLORS.BOX[3], alpha)
+        
+        local width = transform.width * scale
+        local height = transform.height * scale
+        local x = centerX - width / 2
+        local y = centerY - height / 2
+        
+        love.graphics.push()
+        love.graphics.translate(centerX, centerY)
+        love.graphics.rotate(rotation)
+        love.graphics.rectangle("fill", -width/2, -height/2, width, height)
+        love.graphics.pop()
     end
 end
 
 function RenderingSystem:drawBomb(entity, transform)
+    local timer = entity:getComponent("timer")
+    local timeLeft = timer and timer.remaining or 3.0
+    local totalTime = timer and timer.duration or 3.0
+    local progress = timeLeft / totalTime -- 1.0 = just placed, 0.0 = about to explode
+    
+    -- Calculate animation effects
+    local pulseSpeed = math.max(0.5, 3.0 * (1.0 - progress)) -- Pulses faster as timer decreases
+    local pulseScale = 1.0 + math.sin(love.timer.getTime() * pulseSpeed * math.pi * 2) * 0.15 * (1.0 - progress)
+    
+    -- Color intensity - starts normal/white, gets redder as time runs out
+    local red = 1.0
+    local green = 1.0 - (1.0 - progress) * 0.8  -- Starts at 1.0, goes down to 0.2
+    local blue = 1.0 - (1.0 - progress) * 0.8   -- Starts at 1.0, goes down to 0.2
+    local alpha = 1.0
+    
+    -- Flash effect in final second - flashes back to white
+    if timeLeft < 1.0 then
+        local flashRate = math.max(2, 8 * (1.0 - timeLeft)) -- Flash faster as explosion approaches
+        local flash = math.sin(love.timer.getTime() * flashRate * math.pi * 2)
+        if flash > 0.5 then
+            red = 1.0
+            green = 1.0
+            blue = 1.0
+            alpha = 0.9 + flash * 0.1
+        end
+    end
+    
+    local centerX = transform.x + transform.width / 2
+    local centerY = transform.y + transform.height / 2
+    
     local image = self.assetManager:getImage("bomb")
     if image then
-        love.graphics.setColor(1, 1, 1)
-        love.graphics.draw(image, transform.x, transform.y, 0,
-                          transform.width / image:getWidth(),
-                          transform.height / image:getHeight())
+        love.graphics.setColor(red, green, blue, alpha)
+        
+        -- Apply pulsing scale
+        local scaleX = (transform.width / image:getWidth()) * pulseScale
+        local scaleY = (transform.height / image:getHeight()) * pulseScale
+        
+        -- Draw with center origin for proper scaling
+        love.graphics.draw(image, centerX, centerY, 0, scaleX, scaleY, 
+                          image:getWidth() / 2, image:getHeight() / 2)
     else
-        -- Fallback to colored circle
-        love.graphics.setColor(Config.COLORS.BOMB)
-        local centerX = transform.x + transform.width / 2
-        local centerY = transform.y + transform.height / 2
-        local radius = math.min(transform.width, transform.height) * 0.35
+        -- Fallback to colored circle with animations
+        love.graphics.setColor(red, green, blue, alpha)
+        local radius = math.min(transform.width, transform.height) * 0.35 * pulseScale
         love.graphics.circle("fill", centerX, centerY, radius)
+        
+        -- Add countdown ring
+        love.graphics.setColor(1, 1, 1, 0.7)
+        love.graphics.setLineWidth(3)
+        local ringRadius = radius * 1.3
+        local arcLength = progress * 2 * math.pi
+        
+        -- Draw countdown arc
+        if arcLength > 0.1 then
+            love.graphics.arc("line", "open", centerX, centerY, ringRadius, 
+                             -math.pi/2, -math.pi/2 + arcLength)
+        end
+        
+        love.graphics.setLineWidth(1) -- Reset line width
     end
 end
 
@@ -152,7 +280,7 @@ function RenderingSystem:drawPowerUp(entity, transform)
     local powerup = entity:getComponent("powerup")
     if not powerup then return end
     
-    local imageName = powerup.type == "bomb" and "Ammo" or "Range"
+    local imageName = "powerup_" .. powerup.type
     local image = self.assetManager:getImage(imageName)
     
     if image then
@@ -163,12 +291,14 @@ function RenderingSystem:drawPowerUp(entity, transform)
                           transform.height / image:getHeight())
     else
         -- Fallback to colored diamond
-        if powerup.type == "bomb" then
-            love.graphics.setColor(Config.COLORS.POWERUP_BOMB)
-        elseif powerup.type == "range" then
-            love.graphics.setColor(Config.COLORS.POWERUP_RANGE)
+        if powerup.type == "heart" then
+            love.graphics.setColor(Config.COLORS.POWERUP_HEART)
         elseif powerup.type == "speed" then
             love.graphics.setColor(Config.COLORS.POWERUP_SPEED)
+        elseif powerup.type == "ammo" then
+            love.graphics.setColor(Config.COLORS.POWERUP_AMMO)
+        elseif powerup.type == "range" then
+            love.graphics.setColor(Config.COLORS.POWERUP_RANGE)
         else
             love.graphics.setColor(1, 1, 1)
         end

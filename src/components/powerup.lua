@@ -5,7 +5,7 @@ PowerUp.__index = PowerUp
 
 function PowerUp:new(type)
     local powerup = {
-        type = type or "bomb", -- "bomb", "range", "speed"
+        type = type or "ammo", -- "heart", "speed", "ammo", "range"
         entity = nil
     }
     setmetatable(powerup, self)

@@ -21,13 +21,25 @@ function LifetimeSystem:update(dt)
             if lifetime then
                 lifetime:update(dt)
                 
-                -- Remove entity when lifetime expires
+                -- Remove entity when lifetime expires - use world:destroyEntity for immediate removal
                 if not lifetime.active then
-                    entity.active = false
+                    if self.world then
+                        self.world:destroyEntity(entity)
+                    else
+                        entity.active = false
+                    end
                 end
             end
         end
     end
+end
+
+function LifetimeSystem:setWorld(world)
+    self.world = world
+end
+
+function LifetimeSystem:draw()
+    -- Lifetime system doesn't need to draw anything
 end
 
 return LifetimeSystem

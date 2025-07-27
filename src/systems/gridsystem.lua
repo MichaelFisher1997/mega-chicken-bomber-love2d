@@ -54,6 +54,17 @@ end
 function GridSystem:updateEntityPosition(entity)
     local transform = entity:getComponent("transform")
     local gridPos = entity:getComponent("gridPosition")
+    local movement = entity:getComponent("movement")
+    
+    -- Skip position update if entity is smoothly moving
+    if movement and movement.isMoving then
+        -- Only update size, not position
+        if transform then
+            transform.width = self.tileSize
+            transform.height = self.tileSize
+        end
+        return
+    end
     
     if transform and gridPos then
         transform.x = self.gridOffsetX + (gridPos.col * self.tileSize)
@@ -110,6 +121,12 @@ function GridSystem:processEntity(entity, dt)
     -- Update entity positions if grid position changes
     local transform = entity:getComponent("transform")
     local gridPos = entity:getComponent("gridPosition")
+    local movement = entity:getComponent("movement")
+    
+    -- Skip position updates for smoothly moving entities
+    if movement and movement.isMoving then
+        return
+    end
     
     if transform and gridPos then
         local expectedX = self.gridOffsetX + (gridPos.col * self.tileSize)
@@ -148,6 +165,10 @@ function GridSystem:drawBackground(assetManager)
             bounds.left, bounds.top,
             bounds.width, bounds.height)
     end
+end
+
+function GridSystem:draw()
+    -- Grid system doesn't need to draw anything
 end
 
 return GridSystem

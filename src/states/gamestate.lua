@@ -10,6 +10,7 @@ local LifetimeSystem = require("src.systems.lifetimesystem")
 local SoundSystem = require("src.systems.soundsystem")
 local ParticleSystem = require("src.systems.particlesystem")
 local PerformanceSystem = require("src.systems.performancesystem")
+local DestructionSystem = require("src.systems.destructionsystem")
 local SaveManager = require("src.managers.savemanager")
 local Config = require("src.config")
 
@@ -33,7 +34,11 @@ function GameState:new(assetManager, inputManager)
         bombs = Config.PLAYER_START_BOMBS,
         maxBombs = Config.PLAYER_START_BOMBS,
         range = Config.PLAYER_START_RANGE,
-        score = 0
+        health = Config.PLAYER_START_HEALTH,
+        speed = Config.PLAYER_SPEED,
+        score = 0,
+        -- Track boxes being destroyed this frame to prevent race conditions
+        destroyingBoxes = {}
     }
     setmetatable(state, self)
     return state
@@ -49,6 +54,9 @@ function GameState:enter()
     self.renderingSystem = RenderingSystem:new()
     self.timerSystem = TimerSystem:new()
     self.lifetimeSystem = LifetimeSystem:new()
+    self.destructionSystem = DestructionSystem:new()
+    self.deathSystem = require("src.systems.deathsystem"):new()
+    self.invincibilitySystem = require("src.systems.invincibilitysystem"):new()
     
     -- Configure systems
     self.renderingSystem.assetManager = self.assetManager
@@ -58,11 +66,18 @@ function GameState:enter()
     self.world:addSystem(self.renderingSystem)
     self.world:addSystem(self.timerSystem)
     self.world:addSystem(self.lifetimeSystem)
+    self.world:addSystem(self.destructionSystem)
+    self.world:addSystem(self.deathSystem)
+    self.world:addSystem(self.invincibilitySystem)
     
     -- Connect systems
     self.movementSystem:setInputManager(self.inputManager)
     self.movementSystem:setWorld(self.world)
     self.movementSystem:setGameState(self)
+    self.lifetimeSystem:setWorld(self.world)
+    self.deathSystem:setWorld(self.world)
+    self.deathSystem:setGridSystem(self.gridSystem)
+    self.deathSystem:setGameState(self)
     
     -- Initialize grid system with current screen size
     local w, h = love.graphics.getDimensions()
@@ -134,18 +149,36 @@ function GameState:createLevel()
     -- Create destructible boxes
     local boxCount = 0
     local maxBoxes = math.floor(Config.GRID_COLS * Config.GRID_ROWS * 0.3) -- 30% of grid
+    local occupiedPositions = {}
+    
+    -- Mark walls as occupied
+    for row = 0, Config.GRID_ROWS - 1 do
+        for col = 0, Config.GRID_COLS - 1 do
+            -- Mark outer walls and indestructible walls as occupied
+            if row == 0 or row == Config.GRID_ROWS - 1 or col == 0 or col == Config.GRID_COLS - 1 or
+               (row % 2 == 0 and col % 2 == 0) then
+                occupiedPositions[row .. "," .. col] = true
+            end
+        end
+    end
+    
+    -- Mark player spawn area as occupied
+    for row = 1, 2 do
+        for col = 1, 2 do
+            occupiedPositions[row .. "," .. col] = true
+        end
+    end
     
     while boxCount < maxBoxes do
         local row = love.math.random(1, Config.GRID_ROWS - 2)
         local col = love.math.random(1, Config.GRID_COLS - 2)
+        local posKey = row .. "," .. col
         
-        -- Skip player spawn area
-        if not (row <= 2 and col <= 2) then
-            -- Skip indestructible wall positions
-            if not (row % 2 == 0 and col % 2 == 0) then
-                self:createWall(row, col, "box")
-                boxCount = boxCount + 1
-            end
+        -- Only place box if position is not occupied
+        if not occupiedPositions[posKey] then
+            self:createWall(row, col, "box")
+            occupiedPositions[posKey] = true
+            boxCount = boxCount + 1
         end
     end
 end
@@ -172,6 +205,9 @@ end
 
 function GameState:update(dt)
     if self.paused then return end
+    
+    -- Clear destruction tracking at start of each frame
+    self.destroyingBoxes = {}
     
     self.gameTime = self.gameTime + dt
     
@@ -203,18 +239,32 @@ function GameState:placeBomb()
     if not self.player or self.bombs <= 0 then return end
     
     local gridPos = self.player:getComponent("gridPosition")
+    local movement = self.player:getComponent("movement")
     if not gridPos then return end
     
-    -- Check if there's already a bomb at this position
+    -- Determine bomb placement position
+    local bombRow, bombCol = gridPos.row, gridPos.col
+    
+    -- If player is moving, place bomb at destination tile for better precision
+    if movement and movement.isMoving and movement.targetRow and movement.targetCol then
+        -- Use the tile the player is moving towards
+        bombRow, bombCol = movement.targetRow, movement.targetCol
+        print("Player moving - placing bomb at destination:", bombRow, bombCol)
+    else
+        print("Player stationary - placing bomb at current position:", bombRow, bombCol)
+    end
+    
+    -- Check if there's already a bomb at the target position
     local bombs = self.world:getEntitiesWithTag("bomb")
     for _, bomb in ipairs(bombs) do
         local bombPos = bomb:getComponent("gridPosition")
-        if bombPos and bombPos.row == gridPos.row and bombPos.col == gridPos.col then
+        if bombPos and bombPos.row == bombRow and bombPos.col == bombCol then
+            print("Bomb already exists at", bombRow, bombCol)
             return -- Bomb already exists here
         end
     end
     
-    self:createBomb(gridPos.row, gridPos.col)
+    self:createBomb(bombRow, bombCol)
     self.bombs = self.bombs - 1
 end
 
@@ -254,14 +304,27 @@ function GameState:explodeBomb(bomb)
 end
 
 function GameState:createExplosion(row, col)
-    -- Create center explosion
-    self:createExplosionPart(row, col)
+    print("[EXPLOSION] Creating explosion at", row, col, "with range", self.range)
     
-    -- Create directional explosions
+    -- Step 1: Calculate all explosion positions and collect boxes atomically
+    local explosionPositions = {{row, col}} -- Center explosion
+    local boxesToDestroy = {}
+    
+    -- Check center position for boxes (could be multiple)
+    local centerBoxes = self:getAllActiveBoxesAt(row, col)
+    if #centerBoxes > 0 then
+        print("[EXPLOSION] Found", #centerBoxes, "center box(es) at", row, col)
+        for _, box in ipairs(centerBoxes) do
+            table.insert(boxesToDestroy, {box, row, col})
+        end
+    end
+    
+    -- Add directional explosions
     local directions = {{0,1}, {0,-1}, {1,0}, {-1,0}}
     
     for _, dir in ipairs(directions) do
         local dx, dy = dir[1], dir[2]
+        print("[EXPLOSION] Checking direction", dx, dy)
         
         for i = 1, self.range do
             local newRow = row + dy * i
@@ -270,51 +333,172 @@ function GameState:createExplosion(row, col)
             -- Check bounds
             if newRow < 0 or newRow >= Config.GRID_ROWS or
                newCol < 0 or newCol >= Config.GRID_COLS then
+                print("[EXPLOSION] Hit boundary at", newRow, newCol)
                 break
             end
             
-            -- Check for indestructible walls and outer walls
-            local indestructibleWalls = self.world:getEntitiesWithTag("indestructible")
-            local outerWalls = self.world:getEntitiesWithTag("wall")
-            local blocked = false
-
-            for _, wall in ipairs(indestructibleWalls) do
-                local wallPos = wall:getComponent("gridPosition")
-                if wallPos and wallPos.row == newRow and wallPos.col == newCol then
-                    blocked = true
-                    break
-                end
-            end
-
-            if not blocked then
-                for _, wall in ipairs(outerWalls) do
-                    local wallPos = wall:getComponent("gridPosition")
-                    if wallPos and wallPos.row == newRow and wallPos.col == newCol then
-                        blocked = true
-                        break
+            -- Check if this position is blocked by solid walls
+            local blockedByWall = self:isPositionBlocked(newRow, newCol)
+            
+            -- Check if this position has destructible boxes (could be multiple)
+            local boxes = self:getAllActiveBoxesAt(newRow, newCol)
+            
+            if not blockedByWall then
+                table.insert(explosionPositions, {newRow, newCol})
+                print("[EXPLOSION] Adding explosion at", newRow, newCol)
+                
+                -- If there are boxes at this position, collect them all and stop the ray
+                if #boxes > 0 then
+                    print("[EXPLOSION] Found", #boxes, "box(es) at", newRow, newCol, "- will destroy all")
+                    for _, box in ipairs(boxes) do
+                        table.insert(boxesToDestroy, {box, newRow, newCol})
                     end
-                end
-            end
-            
-            if blocked then break end
-            
-            -- Create explosion part
-            self:createExplosionPart(newRow, newCol)
-            
-            -- Check for destructible boxes
-            local boxes = self.world:getEntitiesWithTag("box")
-            for _, box in ipairs(boxes) do
-                local boxPos = box:getComponent("gridPosition")
-                if boxPos and boxPos.row == newRow and boxPos.col == newCol then
-                    self:destroyBox(box, newRow, newCol)
-                    blocked = true
                     break
+                else
+                    print("[EXPLOSION] No box at", newRow, newCol)
                 end
+            else
+                print("[EXPLOSION] Blocked by wall at", newRow, newCol)
+                break
             end
-            
-            if blocked then break end
         end
     end
+    
+    -- Step 2: Destroy all boxes atomically (before creating visual effects)
+    print("[EXPLOSION] Will destroy", #boxesToDestroy, "boxes")
+    for _, boxData in ipairs(boxesToDestroy) do
+        local box, boxRow, boxCol = boxData[1], boxData[2], boxData[3]
+        print("[EXPLOSION] Destroying box at", boxRow, boxCol)
+        self:startBoxDestruction(box, boxRow, boxCol)
+    end
+    
+    -- Step 3: Check for player damage
+    self:checkPlayerDamage(explosionPositions)
+    
+    -- Step 4: Create all explosion effects
+    print("[EXPLOSION] Creating", #explosionPositions, "explosion effects")
+    for _, pos in ipairs(explosionPositions) do
+        local posRow, posCol = pos[1], pos[2]
+        self:createExplosionPart(posRow, posCol)
+    end
+    
+    print("[EXPLOSION] Explosion complete")
+end
+
+function GameState:checkPlayerDamage(explosionPositions)
+    if not self.player or not self.player.active then return end
+    
+    local playerGridPos = self.player:getComponent("gridPosition")
+    if not playerGridPos then return end
+    
+    -- Check if player has invincibility
+    local invincibility = self.player:getComponent("invincibility")
+    if invincibility and invincibility:isInvincible() then
+        print("[DAMAGE] Player is invincible, no damage taken")
+        return
+    end
+    
+    -- Check if player is already dying
+    local death = self.player:getComponent("death")
+    if death and death.isDying then
+        print("[DAMAGE] Player is already dying, no additional damage")
+        return
+    end
+    
+    -- Check if player is in any explosion position
+    for _, pos in ipairs(explosionPositions) do
+        local expRow, expCol = pos[1], pos[2]
+        if playerGridPos.row == expRow and playerGridPos.col == expCol then
+            print("[DAMAGE] Player hit by explosion at", expRow, expCol)
+            self:damagePlayer()
+            return
+        end
+    end
+end
+
+function GameState:damagePlayer()
+    if not self.player then return end
+    
+    -- Lose a life
+    self.lives = self.lives - 1
+    print("[DAMAGE] Player damaged! Lives remaining:", self.lives)
+    
+    if self.lives <= 0 then
+        print("[GAME] Game Over!")
+        -- TODO: Implement game over state
+        return
+    end
+    
+    -- Start death animation
+    local Death = require("src.components.death")
+    local death = Death:new(1.5) -- 1.5 second death animation
+    death:start()
+    self.player:addComponent("death", death)
+    
+    -- Add entity to systems to handle death animation
+    self.world:addEntityToSystems(self.player)
+    
+    print("[DAMAGE] Started death animation")
+end
+
+function GameState:isPositionBlocked(row, col)
+    -- Check for indestructible walls
+    local indestructibleWalls = self.world:getEntitiesWithTag("indestructible")
+    for _, wall in ipairs(indestructibleWalls) do
+        local wallPos = wall:getComponent("gridPosition")
+        if wallPos and wallPos.row == row and wallPos.col == col then
+            return true
+        end
+    end
+    
+    -- Check for outer walls (but skip boxes)
+    local outerWalls = self.world:getEntitiesWithTag("wall")
+    for _, wall in ipairs(outerWalls) do
+        if not wall:hasTag("box") and not wall:hasTag("destroyed_box") then
+            local wallPos = wall:getComponent("gridPosition")
+            if wallPos and wallPos.row == row and wallPos.col == col then
+                return true
+            end
+        end
+    end
+    
+    return false
+end
+
+function GameState:hasDestructibleBoxAt(row, col)
+    local boxes = self.world:getEntitiesWithTag("box")
+    for _, box in ipairs(boxes) do
+        local boxPos = box:getComponent("gridPosition")
+        if boxPos and boxPos.row == row and boxPos.col == col and box.active then
+            return true
+        end
+    end
+    return false
+end
+
+function GameState:getAllActiveBoxesAt(row, col)
+    local boxes = self.world:getEntitiesWithTag("box")
+    local boxesAtPosition = {}
+    
+    for _, box in ipairs(boxes) do
+        local boxPos = box:getComponent("gridPosition")
+        if boxPos and boxPos.row == row and boxPos.col == col and box.active and not box:hasComponent("destruction") then
+            table.insert(boxesAtPosition, box)
+        end
+    end
+    
+    return boxesAtPosition
+end
+
+function GameState:getActiveBoxAt(row, col)
+    local boxes = self:getAllActiveBoxesAt(row, col)
+    
+    if #boxes > 1 then
+        print("[BOX CHECK] WARNING: Found", #boxes, "boxes at position", row, col, "- will destroy all")
+    end
+    
+    -- Return the first box, but the explosion system should handle all boxes
+    return boxes[1]
 end
 
 function GameState:createExplosionPart(row, col)
@@ -336,8 +520,48 @@ function GameState:createExplosionPart(row, col)
     return explosion
 end
 
-function GameState:destroyBox(box, row, col)
-    self.world:destroyEntity(box)
+function GameState:startBoxDestruction(box, row, col)
+    print("[BOX DESTROY] Starting destruction for box", box.id, "at", row, col)
+    
+    -- Check if already being destroyed or inactive
+    if not box.active or box:hasComponent("destruction") then
+        print("[BOX DESTROY] Box already destroyed or has destruction component - skipping")
+        return
+    end
+    
+    -- Start destruction animation
+    local Destruction = require("src.components.destruction")
+    local destruction = Destruction:new(0.3) -- 0.3 second animation
+    box:addComponent("destruction", destruction)
+    destruction:start()
+    
+    -- CRITICAL FIX: Add entity to systems now that it has destruction component
+    self.world:addEntityToSystems(box)
+    
+    -- Immediately destroy the box for game logic
+    self:completeBoxDestruction(box, row, col)
+    print("[BOX DESTROY] Completed destruction setup for box", box.id)
+end
+
+function GameState:completeBoxDestruction(box, row, col)
+    -- DON'T set active = false yet! Let the destruction animation finish first
+    -- box.active = false  -- REMOVED - this was preventing system updates
+    
+    -- Remove from collision and detection systems immediately
+    if box:hasComponent("collision") then
+        box:removeComponent("collision")
+    end
+    
+    -- Remove box tag so it's no longer found by explosion system
+    box:removeTag("box")
+    -- Add a destroyed tag so rendering system still draws it during animation
+    box:addTag("destroyed_box")
+    
+    -- Schedule actual removal after animation
+    local Lifetime = require("src.components.lifetime")
+    box:addComponent("lifetime", Lifetime:new(0.3)) -- Remove after animation
+    self.world:addEntityToSystems(box) -- Ensure lifetime system gets the entity
+    
     self.score = self.score + 10
     
     -- Chance to drop power-up
@@ -346,13 +570,18 @@ function GameState:destroyBox(box, row, col)
     end
 end
 
+function GameState:destroyBox(box, row, col)
+    -- Legacy function for backwards compatibility
+    self:startBoxDestruction(box, row, col)
+end
+
 function GameState:createPowerUp(row, col)
     local Entity = require("src.ecs.entity")
     local Transform = require("src.components.transform")
     local GridPosition = require("src.components.gridposition")
     local PowerUp = require("src.components.powerup")
     
-    local types = {"bomb", "range"}
+    local types = {"heart", "speed", "ammo", "range"}
     local type = types[love.math.random(1, #types)]
     
     local powerup = self.world:createEntity()
@@ -436,13 +665,16 @@ function GameState:drawUI()
     -- Game stats
     love.graphics.print("Score: " .. self.score, 10, 10)
     love.graphics.print("Lives: " .. self.lives, 10, 30)
-    love.graphics.print("Bombs: " .. self.bombs .. "/" .. self.maxBombs, 10, 50)
-    love.graphics.print("Range: " .. self.range, 10, 70)
-    love.graphics.print("Time: " .. string.format("%.1f", self.gameTime), 10, 90)
+    love.graphics.print("Health: " .. self.health, 10, 50)
+    love.graphics.print("Bombs: " .. self.bombs .. "/" .. self.maxBombs, 10, 70)
+    love.graphics.print("Range: " .. self.range, 10, 90)
+    love.graphics.print("Speed: " .. string.format("%.1f", self.speed), 10, 110)
+    love.graphics.print("Time: " .. string.format("%.1f", self.gameTime), 10, 130)
+    love.graphics.print("Drop Rate: " .. string.format("%.0f%%", Config.POWERUP_DROP_CHANCE * 100), 10, 150)
     
     -- Controls hint
     love.graphics.setFont(love.graphics.newFont(12))
-    love.graphics.print("WASD/Arrows: Move | Space: Bomb | P: Pause", 10, love.graphics.getHeight() - 30)
+    love.graphics.print("WASD/Arrows: Move | Space: Bomb | P: Pause | +/-: Drop Rate", 10, love.graphics.getHeight() - 30)
 end
 
 function GameState:drawPauseOverlay()
@@ -464,6 +696,15 @@ function GameState:resize(w, h)
 end
 
 function GameState:keypressed(key)
+    -- Handle powerup drop chance adjustment
+    if key == "=" or key == "+" then
+        Config.POWERUP_DROP_CHANCE = math.min(Config.POWERUP_DROP_CHANCE + 0.1, 1.0)
+        print("[CONFIG] Powerup drop chance increased to:", string.format("%.1f%%", Config.POWERUP_DROP_CHANCE * 100))
+    elseif key == "-" then
+        Config.POWERUP_DROP_CHANCE = math.max(Config.POWERUP_DROP_CHANCE - 0.1, 0.0)
+        print("[CONFIG] Powerup drop chance decreased to:", string.format("%.1f%%", Config.POWERUP_DROP_CHANCE * 100))
+    end
+    
     self.inputManager:keypressed(key)
 end
 
