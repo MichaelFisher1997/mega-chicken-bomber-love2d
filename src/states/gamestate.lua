@@ -1,0 +1,470 @@
+-- Game state for the main gameplay
+-- Manages the ECS world and game systems
+
+local World = require("src.ecs.world")
+local GridSystem = require("src.systems.gridsystem")
+local MovementSystem = require("src.systems.movementsystem")
+local RenderingSystem = require("src.systems.renderingsystem")
+local TimerSystem = require("src.systems.timersystem")
+local LifetimeSystem = require("src.systems.lifetimesystem")
+local SoundSystem = require("src.systems.soundsystem")
+local ParticleSystem = require("src.systems.particlesystem")
+local PerformanceSystem = require("src.systems.performancesystem")
+local SaveManager = require("src.managers.savemanager")
+local Config = require("src.config")
+
+local GameState = {}
+GameState.__index = GameState
+
+function GameState:new(assetManager, inputManager)
+    local state = {
+        world = nil,
+        assetManager = assetManager,
+        inputManager = inputManager,
+        gridSystem = nil,
+        movementSystem = nil,
+        renderingSystem = nil,
+        shouldTransition = false,
+        nextState = nil,
+        gameTime = 0,
+        paused = false,
+        player = nil,
+        lives = Config.PLAYER_START_LIVES,
+        bombs = Config.PLAYER_START_BOMBS,
+        maxBombs = Config.PLAYER_START_BOMBS,
+        range = Config.PLAYER_START_RANGE,
+        score = 0
+    }
+    setmetatable(state, self)
+    return state
+end
+
+function GameState:enter()
+    -- Create ECS world
+    self.world = World:new()
+    
+    -- Create and add systems
+    self.gridSystem = GridSystem:new()
+    self.movementSystem = MovementSystem:new()
+    self.renderingSystem = RenderingSystem:new()
+    self.timerSystem = TimerSystem:new()
+    self.lifetimeSystem = LifetimeSystem:new()
+    
+    -- Configure systems
+    self.renderingSystem.assetManager = self.assetManager
+    
+    self.world:addSystem(self.gridSystem)
+    self.world:addSystem(self.movementSystem)
+    self.world:addSystem(self.renderingSystem)
+    self.world:addSystem(self.timerSystem)
+    self.world:addSystem(self.lifetimeSystem)
+    
+    -- Connect systems
+    self.movementSystem:setInputManager(self.inputManager)
+    self.movementSystem:setWorld(self.world)
+    self.movementSystem:setGameState(self)
+    
+    -- Initialize grid system with current screen size
+    local w, h = love.graphics.getDimensions()
+    self.gridSystem:resize(w, h)
+    
+    -- Create initial game entities
+    self:createGameEntities()
+    
+    -- Initialize input
+    self.inputManager:resize(w, h)
+end
+
+function GameState:exit()
+    if self.world then
+        self.world:clear()
+    end
+end
+
+function GameState:createGameEntities()
+    -- Create player
+    self:createPlayer(1, 1)
+    
+    -- Create walls and boxes
+    self:createLevel()
+end
+
+function GameState:createPlayer(row, col)
+    local Entity = require("src.ecs.entity")
+    local Transform = require("src.components.transform")
+    local GridPosition = require("src.components.gridposition")
+    local Movement = require("src.components.movement")
+    local Collision = require("src.components.collision")
+    
+    local player = self.world:createEntity()
+    player:addTag("player")
+    
+    -- Add components
+    player:addComponent("transform", Transform:new(0, 0, 0, 0))
+    player:addComponent("gridPosition", GridPosition:new(row, col))
+    player:addComponent("movement", Movement:new(Config.PLAYER_SPEED))
+    player:addComponent("collision", Collision:new(0.8, 0.8, 0.1, 0.1))
+    
+    self.player = player
+    return player
+end
+
+function GameState:createLevel()
+    -- Create outer walls
+    for col = 0, Config.GRID_COLS - 1 do
+        self:createWall(0, col, "wall")
+        self:createWall(Config.GRID_ROWS - 1, col, "wall")
+    end
+    
+    for row = 1, Config.GRID_ROWS - 2 do
+        self:createWall(row, 0, "wall")
+        self:createWall(row, Config.GRID_COLS - 1, "wall")
+    end
+    
+    -- Create indestructible walls (every other tile in even rows/cols)
+    for row = 2, Config.GRID_ROWS - 3, 2 do
+        for col = 2, Config.GRID_COLS - 3, 2 do
+            self:createWall(row, col, "indestructible")
+        end
+    end
+    
+    -- Create destructible boxes
+    local boxCount = 0
+    local maxBoxes = math.floor(Config.GRID_COLS * Config.GRID_ROWS * 0.3) -- 30% of grid
+    
+    while boxCount < maxBoxes do
+        local row = love.math.random(1, Config.GRID_ROWS - 2)
+        local col = love.math.random(1, Config.GRID_COLS - 2)
+        
+        -- Skip player spawn area
+        if not (row <= 2 and col <= 2) then
+            -- Skip indestructible wall positions
+            if not (row % 2 == 0 and col % 2 == 0) then
+                self:createWall(row, col, "box")
+                boxCount = boxCount + 1
+            end
+        end
+    end
+end
+
+function GameState:createWall(row, col, wallType)
+    local Entity = require("src.ecs.entity")
+    local Transform = require("src.components.transform")
+    local GridPosition = require("src.components.gridposition")
+    local Collision = require("src.components.collision")
+    
+    local wall = self.world:createEntity()
+    wall:addTag("wall")
+    wall:addTag(wallType)
+    
+    wall:addComponent("transform", Transform:new(0, 0, 0, 0))
+    wall:addComponent("gridPosition", GridPosition:new(row, col))
+    wall:addComponent("collision", Collision:new(1, 1, 0, 0))
+    
+    return wall
+end
+
+function GameState:update(dt)
+    if self.paused then return end
+    
+    self.gameTime = self.gameTime + dt
+    
+    -- Update world
+    if self.world then
+        self.world:update(dt)
+    end
+    
+    -- Handle input
+    self:handleInput(dt)
+end
+
+function GameState:handleInput(dt)
+    -- Handle bomb placement
+    if self.inputManager:isActionPressed("bomb") then
+        self:placeBomb()
+    end
+    
+    if self.inputManager:isActionPressed("pause") then
+        self.paused = not self.paused
+    end
+    
+    if self.inputManager:isActionPressed("restart") then
+        self:restart()
+    end
+end
+
+function GameState:placeBomb()
+    if not self.player or self.bombs <= 0 then return end
+    
+    local gridPos = self.player:getComponent("gridPosition")
+    if not gridPos then return end
+    
+    -- Check if there's already a bomb at this position
+    local bombs = self.world:getEntitiesWithTag("bomb")
+    for _, bomb in ipairs(bombs) do
+        local bombPos = bomb:getComponent("gridPosition")
+        if bombPos and bombPos.row == gridPos.row and bombPos.col == gridPos.col then
+            return -- Bomb already exists here
+        end
+    end
+    
+    self:createBomb(gridPos.row, gridPos.col)
+    self.bombs = self.bombs - 1
+end
+
+function GameState:createBomb(row, col)
+    local Entity = require("src.ecs.entity")
+    local Transform = require("src.components.transform")
+    local GridPosition = require("src.components.gridposition")
+    local Timer = require("src.components.timer")
+    
+    local bomb = self.world:createEntity()
+    bomb:addTag("bomb")
+    
+    bomb:addComponent("transform", Transform:new(0, 0, 0, 0))
+    bomb:addComponent("gridPosition", GridPosition:new(row, col))
+    bomb:addComponent("timer", Timer:new(Config.BOMB_TIMER, function()
+        self:explodeBomb(bomb)
+    end))
+    
+    return bomb
+end
+
+function GameState:explodeBomb(bomb)
+    local gridPos = bomb:getComponent("gridPosition")
+    if not gridPos then return end
+    
+    -- Create explosion
+    self:createExplosion(gridPos.row, gridPos.col)
+    
+    -- Remove bomb
+    self.world:destroyEntity(bomb)
+    
+    -- Return bomb to player
+    self.bombs = math.min(self.bombs + 1, self.maxBombs)
+end
+
+function GameState:createExplosion(row, col)
+    -- Create center explosion
+    self:createExplosionPart(row, col)
+    
+    -- Create directional explosions
+    local directions = {{0,1}, {0,-1}, {1,0}, {-1,0}}
+    
+    for _, dir in ipairs(directions) do
+        local dx, dy = dir[1], dir[2]
+        
+        for i = 1, self.range do
+            local newRow = row + dy * i
+            local newCol = col + dx * i
+            
+            -- Check bounds
+            if newRow < 0 or newRow >= Config.GRID_ROWS or
+               newCol < 0 or newCol >= Config.GRID_COLS then
+                break
+            end
+            
+            -- Check for indestructible walls
+            local walls = self.world:getEntitiesWithTag("indestructible")
+            local blocked = false
+            for _, wall in ipairs(walls) do
+                local wallPos = wall:getComponent("gridPosition")
+                if wallPos and wallPos.row == newRow and wallPos.col == newCol then
+                    blocked = true
+                    break
+                end
+            end
+            
+            if blocked then break end
+            
+            -- Create explosion part
+            self:createExplosionPart(newRow, newCol)
+            
+            -- Check for destructible boxes
+            local boxes = self.world:getEntitiesWithTag("box")
+            for _, box in ipairs(boxes) do
+                local boxPos = box:getComponent("gridPosition")
+                if boxPos and boxPos.row == newRow and boxPos.col == newCol then
+                    self:destroyBox(box, newRow, newCol)
+                    blocked = true
+                    break
+                end
+            end
+            
+            if blocked then break end
+        end
+    end
+end
+
+function GameState:createExplosionPart(row, col)
+    local Entity = require("src.ecs.entity")
+    local Transform = require("src.components.transform")
+    local GridPosition = require("src.components.gridposition")
+    local Lifetime = require("src.components.lifetime")
+    
+    local explosion = self.world:createEntity()
+    explosion:addTag("explosion")
+    
+    explosion:addComponent("transform", Transform:new(0, 0, 0, 0))
+    explosion:addComponent("gridPosition", GridPosition:new(row, col))
+    explosion:addComponent("lifetime", Lifetime:new(Config.EXPLOSION_DURATION))
+    
+    return explosion
+end
+
+function GameState:destroyBox(box, row, col)
+    self.world:destroyEntity(box)
+    self.score = self.score + 10
+    
+    -- Chance to drop power-up
+    if love.math.random() < Config.POWERUP_DROP_CHANCE then
+        self:createPowerUp(row, col)
+    end
+end
+
+function GameState:createPowerUp(row, col)
+    local Entity = require("src.ecs.entity")
+    local Transform = require("src.components.transform")
+    local GridPosition = require("src.components.gridposition")
+    local PowerUp = require("src.components.powerup")
+    
+    local types = {"bomb", "range"}
+    local type = types[love.math.random(1, #types)]
+    
+    local powerup = self.world:createEntity()
+    powerup:addTag("powerup")
+    
+    powerup:addComponent("transform", Transform:new(0, 0, 0, 0))
+    powerup:addComponent("gridPosition", GridPosition:new(row, col))
+    powerup:addComponent("powerup", PowerUp:new(type))
+    
+    return powerup
+end
+
+function GameState:draw()
+    -- Clear screen
+    love.graphics.clear(Config.COLORS.BACKGROUND)
+    
+    -- Draw grid background
+    self:drawGridBackground()
+    
+    -- Draw world
+    if self.world then
+        self.world:draw()
+    end
+    
+    -- Draw UI
+    self:drawUI()
+    
+    -- Draw touch controls
+    self.inputManager:drawTouchControls()
+    
+    -- Draw pause overlay
+    if self.paused then
+        self:drawPauseOverlay()
+    end
+end
+
+function GameState:drawGridBackground()
+    local bounds = self.gridSystem:getGridBounds()
+    local tileSize = self.gridSystem:getTileSize()
+    
+    -- Draw floor tiles for background
+    local floorImage = self.assetManager:getImage("Tiles/Box.png")
+    if floorImage then
+        love.graphics.setColor(1, 1, 1)
+        for row = 0, Config.GRID_ROWS - 1 do
+            for col = 0, Config.GRID_COLS - 1 do
+                local x = bounds.left + (col * tileSize)
+                local y = bounds.top + (row * tileSize)
+                love.graphics.draw(floorImage, x, y, 0, tileSize / floorImage:getWidth(), tileSize / floorImage:getHeight())
+            end
+        end
+    else
+        -- Fallback to colored rectangle if image not found
+        love.graphics.setColor(Config.COLORS.FLOOR)
+        love.graphics.rectangle("fill",
+            bounds.left, bounds.top,
+            bounds.width, bounds.height)
+    end
+    
+    -- Draw grid lines (subtle)
+    love.graphics.setColor(0.3, 0.3, 0.3, 0.2)
+    for row = 0, Config.GRID_ROWS do
+        local y = bounds.top + (row * tileSize)
+        love.graphics.line(bounds.left, y, bounds.right, y)
+    end
+    
+    for col = 0, Config.GRID_COLS do
+        local x = bounds.left + (col * tileSize)
+        love.graphics.line(x, bounds.top, x, bounds.bottom)
+    end
+end
+
+function GameState:drawUI()
+    local font = love.graphics.newFont(16)
+    love.graphics.setFont(font)
+    love.graphics.setColor(Config.COLORS.TEXT)
+    
+    -- Game stats
+    love.graphics.print("Score: " .. self.score, 10, 10)
+    love.graphics.print("Lives: " .. self.lives, 10, 30)
+    love.graphics.print("Bombs: " .. self.bombs .. "/" .. self.maxBombs, 10, 50)
+    love.graphics.print("Range: " .. self.range, 10, 70)
+    love.graphics.print("Time: " .. string.format("%.1f", self.gameTime), 10, 90)
+    
+    -- Controls hint
+    love.graphics.setFont(love.graphics.newFont(12))
+    love.graphics.print("WASD/Arrows: Move | Space: Bomb | P: Pause", 10, love.graphics.getHeight() - 30)
+end
+
+function GameState:drawPauseOverlay()
+    love.graphics.setColor(0, 0, 0, 0.7)
+    love.graphics.rectangle("fill", 0, 0, love.graphics.getDimensions())
+    
+    love.graphics.setColor(1, 1, 1)
+    love.graphics.printf("PAUSED", 0, love.graphics.getHeight() / 2 - 20, 
+        love.graphics.getWidth(), "center")
+    love.graphics.printf("Press P to resume", 0, love.graphics.getHeight() / 2 + 10, 
+        love.graphics.getWidth(), "center")
+end
+
+function GameState:resize(w, h)
+    if self.gridSystem then
+        self.gridSystem:resize(w, h)
+    end
+    self.inputManager:resize(w, h)
+end
+
+function GameState:keypressed(key)
+    self.inputManager:keypressed(key)
+end
+
+function GameState:keyreleased(key)
+    self.inputManager:keyreleased(key)
+end
+
+function GameState:touchpressed(id, x, y, dx, dy, pressure)
+    self.inputManager:touchpressed(id, x, y, dx, dy, pressure)
+end
+
+function GameState:touchreleased(id, x, y, dx, dy, pressure)
+    self.inputManager:touchreleased(id, x, y, dx, dy, pressure)
+end
+
+function GameState:touchmoved(id, x, y, dx, dy, pressure)
+    self.inputManager:touchmoved(id, x, y, dx, dy, pressure)
+end
+
+function GameState:gamepadpressed(joystick, button)
+    -- Handle gamepad input
+end
+
+function GameState:restart()
+    self:exit()
+    self:enter()
+    self.gameTime = 0
+    self.paused = false
+end
+
+return GameState
