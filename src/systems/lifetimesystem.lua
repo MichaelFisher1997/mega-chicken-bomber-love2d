@@ -42,4 +42,8 @@ function LifetimeSystem:draw()
     -- Lifetime system doesn't need to draw anything
 end
 
+function LifetimeSystem:clear()
+    -- Lifetime system doesn't maintain entity lists
+end
+
 return LifetimeSystem

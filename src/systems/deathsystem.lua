@@ -133,4 +133,8 @@ function DeathSystem:draw()
     -- Death system doesn't need to draw anything
 end
 
+function DeathSystem:clear()
+    self.entities = {}
+end
+
 return DeathSystem

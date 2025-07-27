@@ -29,18 +29,22 @@ function MovementSystem:processEntity(entity, dt)
     local movement = entity:getComponent("movement")
     local gridPos = entity:getComponent("gridPosition")
     
-    -- Handle input for player
+    -- Handle input for player (only if not dying)
     if entity:hasTag("player") then
-        self:handlePlayerMovement(entity, dt)
+        local death = entity:getComponent("death")
+        local invincibility = entity:getComponent("invincibility")
+        
+        -- Only allow movement and interaction if not dying
+        if not (death and death.isDying) then
+            self:handlePlayerMovement(entity, dt)
+            
+            -- Check for power-up collection during movement (not just on completion)
+            self:checkPowerUpCollectionContinuous(entity)
+        end
     end
     
-    -- Update movement interpolation
+    -- Update movement interpolation (always, even during death for smooth animations)
     self:updateMovementInterpolation(entity, dt)
-    
-    -- Check for power-up collection during movement (not just on completion)
-    if entity:hasTag("player") then
-        self:checkPowerUpCollectionContinuous(entity)
-    end
 end
 
 function MovementSystem:handlePlayerMovement(entity, dt)
@@ -325,6 +329,10 @@ end
 
 function MovementSystem:draw()
     -- Movement system doesn't need to draw anything
+end
+
+function MovementSystem:clear()
+    -- Movement system doesn't maintain entity lists
 end
 
 return MovementSystem

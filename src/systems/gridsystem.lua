@@ -171,4 +171,8 @@ function GridSystem:draw()
     -- Grid system doesn't need to draw anything
 end
 
+function GridSystem:clear()
+    -- Grid system doesn't maintain entity lists
+end
+
 return GridSystem

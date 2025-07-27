@@ -42,4 +42,8 @@ function DestructionSystem:draw()
     -- Destruction system doesn't need to draw anything
 end
 
+function DestructionSystem:clear()
+    -- Destruction system doesn't maintain entity lists
+end
+
 return DestructionSystem

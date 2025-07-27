@@ -34,4 +34,8 @@ function TimerSystem:draw()
     -- Timer system doesn't need to draw anything
 end
 
+function TimerSystem:clear()
+    -- Timer system doesn't maintain entity lists
+end
+
 return TimerSystem

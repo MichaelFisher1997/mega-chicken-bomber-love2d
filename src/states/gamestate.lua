@@ -37,6 +37,7 @@ function GameState:new(assetManager, inputManager)
         health = Config.PLAYER_START_HEALTH,
         speed = Config.PLAYER_SPEED,
         score = 0,
+        gameOver = false,
         -- Track boxes being destroyed this frame to prevent race conditions
         destroyingBoxes = {}
     }
@@ -206,6 +207,12 @@ end
 function GameState:update(dt)
     if self.paused then return end
     
+    -- Handle game over state
+    if self.gameOver then
+        self:handleGameOverInput(dt)
+        return
+    end
+    
     -- Clear destruction tracking at start of each frame
     self.destroyingBoxes = {}
     
@@ -237,6 +244,12 @@ end
 
 function GameState:placeBomb()
     if not self.player or self.bombs <= 0 then return end
+    
+    -- Prevent bomb placement during death animation
+    local death = self.player:getComponent("death")
+    if death and death.isDying then
+        return
+    end
     
     local gridPos = self.player:getComponent("gridPosition")
     local movement = self.player:getComponent("movement")
@@ -425,7 +438,7 @@ function GameState:damagePlayer()
     
     if self.lives <= 0 then
         print("[GAME] Game Over!")
-        -- TODO: Implement game over state
+        self.gameOver = true
         return
     end
     
@@ -619,6 +632,11 @@ function GameState:draw()
     if self.paused then
         self:drawPauseOverlay()
     end
+    
+    -- Draw game over overlay
+    if self.gameOver then
+        self:drawGameOverScreen()
+    end
 end
 
 function GameState:drawGridBackground()
@@ -677,6 +695,49 @@ function GameState:drawUI()
     love.graphics.print("WASD/Arrows: Move | Space: Bomb | P: Pause | +/-: Drop Rate", 10, love.graphics.getHeight() - 30)
 end
 
+function GameState:drawGameOverScreen()
+    -- Semi-transparent overlay
+    love.graphics.setColor(0, 0, 0, 0.8)
+    love.graphics.rectangle("fill", 0, 0, love.graphics.getWidth(), love.graphics.getHeight())
+    
+    -- Game Over title
+    love.graphics.setColor(1, 0.2, 0.2) -- Red color
+    local titleFont = love.graphics.newFont(48)
+    love.graphics.setFont(titleFont)
+    
+    local title = "GAME OVER"
+    local titleWidth = titleFont:getWidth(title)
+    local titleHeight = titleFont:getHeight()
+    local centerX = love.graphics.getWidth() / 2 - titleWidth / 2
+    local centerY = love.graphics.getHeight() / 2 - 100
+    
+    love.graphics.print(title, centerX, centerY)
+    
+    -- Final score
+    love.graphics.setColor(1, 1, 1) -- White color
+    local scoreFont = love.graphics.newFont(24)
+    love.graphics.setFont(scoreFont)
+    
+    local scoreText = "Final Score: " .. self.score
+    local scoreWidth = scoreFont:getWidth(scoreText)
+    love.graphics.print(scoreText, love.graphics.getWidth() / 2 - scoreWidth / 2, centerY + 80)
+    
+    -- Instructions
+    love.graphics.setFont(love.graphics.newFont(16))
+    local instructions = {
+        "Press SPACE, R, or ENTER to return to menu",
+        "",
+        "Stats:",
+        "Time Played: " .. string.format("%.1f", self.gameTime) .. "s",
+        "Powerup Drop Rate: " .. string.format("%.0f%%", Config.POWERUP_DROP_CHANCE * 100)
+    }
+    
+    for i, instruction in ipairs(instructions) do
+        local instrWidth = love.graphics.getFont():getWidth(instruction)
+        love.graphics.print(instruction, love.graphics.getWidth() / 2 - instrWidth / 2, centerY + 120 + (i * 25))
+    end
+end
+
 function GameState:drawPauseOverlay()
     love.graphics.setColor(0, 0, 0, 0.7)
     love.graphics.rectangle("fill", 0, 0, love.graphics.getDimensions())
@@ -706,6 +767,16 @@ function GameState:keypressed(key)
     end
     
     self.inputManager:keypressed(key)
+end
+
+function GameState:handleGameOverInput(dt)
+    -- Check for return to menu input
+    if self.inputManager:isActionPressed("bomb") or -- Space key
+       self.inputManager:isActionPressed("restart") or -- R key
+       love.keyboard.isDown("return") then
+        self.shouldTransition = true
+        self.nextState = "menu"
+    end
 end
 
 function GameState:keyreleased(key)

@@ -51,4 +51,8 @@ function InvincibilitySystem:draw()
     -- Invincibility system doesn't need to draw anything
 end
 
+function InvincibilitySystem:clear()
+    self.entities = {}
+end
+
 return InvincibilitySystem
