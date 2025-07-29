@@ -3,13 +3,17 @@
 
 local GameState = require("src.states.gamestate")
 local MenuState = require("src.states.menustate")
+local SettingsState = require("src.states.settingsstate")
+local DebugState = require("src.states.debugstate")
 local AssetManager = require("src.managers.assetmanager")
 local InputManager = require("src.managers.inputmanager")
+local CharacterManager = require("src.managers.charactermanager")
 local Config = require("src.config")
 
 local currentState
 local assetManager
 local inputManager
+local characterManager
 
 function love.load()
     -- Set up window
@@ -23,9 +27,13 @@ function love.load()
     -- Initialize managers
     assetManager = AssetManager:new()
     inputManager = InputManager:new()
+    characterManager = CharacterManager:new(assetManager)
     
     -- Load assets
     assetManager:load()
+    
+    -- Load selected character sprite
+    characterManager:loadSelectedCharacterSprite()
     
     -- Start with menu state
     currentState = MenuState:new(assetManager, inputManager)
@@ -46,9 +54,13 @@ function love.update(dt)
             currentState:exit()
             
             if nextState == "game" then
-                currentState = GameState:new(assetManager, inputManager)
+                currentState = GameState:new(assetManager, inputManager, characterManager)
             elseif nextState == "menu" then
                 currentState = MenuState:new(assetManager, inputManager)
+            elseif nextState == "settings" then
+                currentState = SettingsState:new(assetManager, inputManager, characterManager)
+            elseif nextState == "debug" then
+                currentState = DebugState:new(assetManager, inputManager)
             end
             
             currentState:enter()

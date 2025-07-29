@@ -16,6 +16,7 @@ function MenuState:new(assetManager, inputManager)
         options = {
             {text = "Start Game", action = "start"},
             {text = "Settings", action = "settings"},
+            {text = "Debug Tileset", action = "debug"},
             {text = "About", action = "about"},
             {text = "Quit", action = "quit"}
         },
@@ -47,15 +48,6 @@ function MenuState:update(dt)
 end
 
 function MenuState:handleInput()
-    local moveX, moveY = self.inputManager:getMovement()
-    
-    -- Menu navigation
-    if self.inputManager:isActionPressed("up") or moveY < 0 then
-        self.selectedOption = math.max(1, self.selectedOption - 1)
-    elseif self.inputManager:isActionPressed("down") or moveY > 0 then
-        self.selectedOption = math.min(#self.options, self.selectedOption + 1)
-    end
-    
     -- Menu selection
     if self.inputManager:isActionPressed("bomb") or 
        self.inputManager:isActionPressed("return") then
@@ -70,7 +62,11 @@ function MenuState:selectOption()
         self.shouldTransition = true
         self.nextState = "game"
     elseif option.action == "settings" then
-        -- TODO: Implement settings
+        self.shouldTransition = true
+        self.nextState = "settings"
+    elseif option.action == "debug" then
+        self.shouldTransition = true
+        self.nextState = "debug"
     elseif option.action == "about" then
         -- TODO: Implement about
     elseif option.action == "quit" then
@@ -120,6 +116,15 @@ function MenuState:resize(w, h)
 end
 
 function MenuState:keypressed(key)
+    -- Handle menu navigation directly
+    if key == "w" or key == "up" then
+        self.selectedOption = math.max(1, self.selectedOption - 1)
+    elseif key == "s" or key == "down" then
+        self.selectedOption = math.min(#self.options, self.selectedOption + 1)
+    elseif key == "space" or key == "return" then
+        self:selectOption()
+    end
+    
     self.inputManager:keypressed(key)
 end
 

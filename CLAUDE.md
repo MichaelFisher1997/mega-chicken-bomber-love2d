@@ -136,6 +136,27 @@ Complete player death lifecycle:
 - Real-time drop rate adjustment during gameplay
 - All powerups reset on death for meaningful risk/reward
 
+### Character Selection System
+Dynamic character selection with smooth animations:
+- **Menu Access**: Main Menu → Settings → Character Selection
+- **Dynamic Discovery**: Automatically detects `character_X` folders in `assets/images/player/`
+- **Drag-and-Drop Ready**: Simply add new character folders with sprite sheets
+- **Smooth Transitions**: 0.5-second sprite sliding animations with cubic easing
+- **Input Controls**: LEFT/RIGHT arrows or A/D keys to navigate characters
+- **Persistent Selection**: Character choice saved and applied to gameplay
+- **Visual Feedback**: Animated sprite previews with walking animations
+
+**Character Folder Structure**:
+```
+assets/images/player/character_X/
+└── character_X_frame32x32.png  # 32x32 sprite sheet (4 rows x 3 columns)
+```
+
+**Navigation**:
+- LEFT/RIGHT or A/D: Navigate between characters
+- SPACE/ENTER: Confirm selection and return to menu
+- R: Return to menu without saving changes
+
 ### Performance Considerations
 - **Responsive design**: Everything scales based on screen size
 - **Entity pooling**: Reuse explosion and particle entities when possible
@@ -154,3 +175,5 @@ Complete player death lifecycle:
 3. **Grid positioning**: Work with grid coordinates first, then convert to pixels via GridSystem
 4. **Duplicate entities**: Level generation must check `occupiedPositions` before placing entities
 5. **Hit detection**: Use generous thresholds for player interaction (1.2+ tile-size radius)
+6. **Asset reloading**: AssetManager now reloads images even if already loaded (removed `if not self.images[name]` condition)
+7. **Character transitions**: Always complete animation state before exiting settings to ensure proper character selection save

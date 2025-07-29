@@ -45,11 +45,21 @@ This document provides a comprehensive specification for the Bomberman game, det
 - **Powerup reset**: All powerups reset to starting values on death (health, speed, bombs, range)
 - **Visual feedback**: Skull image displays during death with fallback colored rectangle
 
+### Character Selection System (2025)
+- **Dynamic character discovery**: Automatically detects character folders in `assets/images/player/`
+- **Drag-and-drop ready**: Simply add new `character_X` folders with sprite sheets for instant availability
+- **Smooth transition animations**: 0.5-second sprite slide transitions with easing and fade effects
+- **Input cooldown system**: Prevents rapid character switching with 0.5s input blocking
+- **Persistent selection**: Selected character saved and loaded across game sessions
+- **Animated previews**: Character sprites animate in selection menu with walking animation
+- **Responsive navigation**: Left/right arrows and A/D keys for character browsing
+
 ### Visual Effects
 - **Destruction animations**: Boxes scale down (1.0→0.0), fade out, and rotate slightly
 - **Bomb countdown visuals**: Pulsing gets faster as explosion approaches
 - **Smooth movement**: Player sprites move fluidly between tiles without ghosting
 - **Tag-based rendering**: Separate "destroyed_box" tag maintains visuals during animation
+- **Character transitions**: Sprite-only sliding animations with cubic easing for character selection
 
 ## Project Structure
 
@@ -58,13 +68,33 @@ bomberman-love2d/
 ├── main.lua              # Main LÖVE 2D entry point
 ├── conf.lua              # LÖVE 2D configuration file
 ├── src/                  # Source code for game logic and components
-│   ├── states/           # Game states (e.g., MainMenu, GameScreen)
-│   ├── entities/         # Game entities (e.g., Player, Bomb, Wall)
-│   ├── components/       # Reusable components
-│   ├── systems/          # Game systems (e.g., physics, rendering)
+│   ├── states/           # Game states (menu, game, settings)
+│   │   ├── menustate.lua     # Main menu with navigation
+│   │   ├── gamestate.lua     # Core gameplay state
+│   │   └── settingsstate.lua # Character selection menu
+│   ├── managers/         # Asset and character management
+│   │   ├── assetmanager.lua      # Image/sound loading
+│   │   ├── charactermanager.lua  # Dynamic character discovery
+│   │   └── inputmanager.lua      # Cross-platform input
+│   ├── components/       # ECS data components
+│   │   ├── animation.lua     # Sprite animation data
+│   │   ├── death.lua         # Death animation state
+│   │   └── invincibility.lua # Immunity period data
+│   ├── systems/          # ECS logic systems
+│   │   ├── animationsystem.lua    # Sprite animation updates
+│   │   ├── deathsystem.lua        # Death sequence handling
+│   │   └── invincibilitysystem.lua # Immunity processing
 │   └── utils/            # Utility functions
-├── assets/               # Game assets (images, sounds, fonts)
+├── assets/               # Organized game assets
 │   ├── images/
+│   │   ├── player/           # Character sprites
+│   │   │   ├── character_1/  # Default character folder
+│   │   │   ├── character_2/  # Additional characters...
+│   │   │   └── Death.png     # Death animation sprite
+│   │   ├── powerups/         # Powerup sprites
+│   │   ├── bombs/            # Bomb and explosion sprites
+│   │   ├── tiles/            # Map tile sprites
+│   │   └── ui/               # UI element sprites
 │   ├── sounds/
 │   └── fonts/
 ├── tests/                # Unit and integration tests
@@ -72,6 +102,7 @@ bomberman-love2d/
 ├── .gitignore
 ├── README.md
 ├── SPECS.md
+├── CLAUDE.md             # Developer instructions
 └── TODO.md
 ```
 
@@ -215,6 +246,55 @@ Each entity typically consists of:
 - Implemented using LÖVE 2D's graphics and animation capabilities.
 - **Box destruction**: Scaling (1.0→0.0), alpha fading (1.0→0.0), slight rotation.
 - Visual effects like scaling, pulsing, and fading are controlled by `DestructionComponent` and `RenderSystem`.
+
+### 11. Character Selection System
+
+**Core Features**:
+
+- **Dynamic discovery**: Automatically scans `assets/images/player/` for `character_X` folders.
+- **Drag-and-drop support**: Simply add new character folders for instant availability.
+- **Settings menu integration**: Accessible via main menu → Settings.
+- **Persistent selection**: Character choice saved across game sessions.
+- **Real-time preview**: Selected character appears in gameplay immediately.
+
+**Components**:
+
+- `CharacterManager`: Handles character discovery, selection, and sprite loading.
+- `SettingsState`: Manages character selection UI and transitions.
+- `AssetManager`: Updated to reload sprites when character changes.
+
+**Navigation**:
+
+- **Input methods**: Left/right arrow keys, A/D keys for character browsing.
+- **Confirmation**: Space/Enter to save selection and return to menu.
+- **Back navigation**: R key to return without saving changes.
+
+**Animation System**:
+
+- **Transition duration**: 0.5-second sprite slide animations.
+- **Easing function**: Cubic easing for smooth, natural movement.
+- **Sprite-only animation**: Text elements remain static during transitions.
+- **Input cooldown**: 0.5-second blocking prevents rapid switching.
+- **Visual feedback**: Outgoing sprite fades out while incoming sprite fades in.
+
+**Character Structure**:
+
+```
+assets/images/player/character_X/
+└── character_X_frame32x32.png  # 32x32 sprite sheet (4 rows x 3 columns)
+    ├── Row 0: Down direction (idle + 3 walking frames)
+    ├── Row 1: Left direction (idle + 3 walking frames)  
+    ├── Row 2: Right direction (idle + 3 walking frames)
+    └── Row 3: Up direction (idle + 3 walking frames)
+```
+
+**Implementation Details**:
+
+- Character folders must start with "character_" prefix.
+- Sprite sheets must be exactly 32x32 pixels per frame.
+- Walking animations use 3 frames: left step, feet together, right step.
+- Idle animations use frame 1 (feet together) for natural standing pose.
+- Character names auto-generated from folder names (e.g., "character_1" → "Character 1").
 
 ### 7. Wall/Box System
 

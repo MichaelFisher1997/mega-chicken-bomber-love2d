@@ -17,11 +17,12 @@ local Config = require("src.config")
 local GameState = {}
 GameState.__index = GameState
 
-function GameState:new(assetManager, inputManager)
+function GameState:new(assetManager, inputManager, characterManager)
     local state = {
         world = nil,
         assetManager = assetManager,
         inputManager = inputManager,
+        characterManager = characterManager,
         gridSystem = nil,
         movementSystem = nil,
         renderingSystem = nil,
@@ -46,6 +47,13 @@ function GameState:new(assetManager, inputManager)
 end
 
 function GameState:enter()
+    -- Load selected character sprite before creating entities
+    if self.characterManager then
+        local selectedCharacter = self.characterManager:getSelectedCharacterData()
+        print("[GAMESTATE] Selected character:", selectedCharacter and selectedCharacter.name or "none")
+        self.characterManager:loadSelectedCharacterSprite()
+    end
+    
     -- Create ECS world
     self.world = World:new()
     
@@ -58,10 +66,9 @@ function GameState:enter()
     self.destructionSystem = DestructionSystem:new()
     self.deathSystem = require("src.systems.deathsystem"):new()
     self.invincibilitySystem = require("src.systems.invincibilitysystem"):new()
-    
+    self.animationSystem = require("src.systems.animationsystem"):new()
     -- Configure systems
     self.renderingSystem.assetManager = self.assetManager
-    
     self.world:addSystem(self.gridSystem)
     self.world:addSystem(self.movementSystem)
     self.world:addSystem(self.renderingSystem)
@@ -70,6 +77,7 @@ function GameState:enter()
     self.world:addSystem(self.destructionSystem)
     self.world:addSystem(self.deathSystem)
     self.world:addSystem(self.invincibilitySystem)
+    self.world:addSystem(self.animationSystem)
     
     -- Connect systems
     self.movementSystem:setInputManager(self.inputManager)
@@ -111,6 +119,7 @@ function GameState:createPlayer(row, col)
     local GridPosition = require("src.components.gridposition")
     local Movement = require("src.components.movement")
     local Collision = require("src.components.collision")
+    local Animation = require("src.components.animation")
     
     local player = self.world:createEntity()
     player:addTag("player")
@@ -120,6 +129,34 @@ function GameState:createPlayer(row, col)
     player:addComponent("gridPosition", GridPosition:new(row, col))
     player:addComponent("movement", Movement:new(Config.PLAYER_SPEED))
     player:addComponent("collision", Collision:new(0.8, 0.8, 0.1, 0.1))
+    
+    -- Add animation component with sprite sheet from selected character
+    local spriteSheet = self.assetManager:getImage("player_spritesheet")
+    if not spriteSheet and self.characterManager then
+        -- Load the selected character sprite if not already loaded
+        self.characterManager:loadSelectedCharacterSprite()
+        spriteSheet = self.assetManager:getImage("player_spritesheet")
+    end
+    
+    if spriteSheet then
+        local animations = {
+            -- Idle animations (feet together frame - frame 1)
+            idle_down = {row = 0, startFrame = 1, frameCount = 1, loop = true},
+            idle_left = {row = 1, startFrame = 1, frameCount = 1, loop = true},
+            idle_right = {row = 2, startFrame = 1, frameCount = 1, loop = true},
+            idle_up = {row = 3, startFrame = 1, frameCount = 1, loop = true},
+            
+            -- Walking animations (3 frames: left step, feet together, right step)
+            walk_down = {row = 0, startFrame = 0, frameCount = 3, loop = true},
+            walk_left = {row = 1, startFrame = 0, frameCount = 3, loop = true},
+            walk_right = {row = 2, startFrame = 0, frameCount = 3, loop = true},
+            walk_up = {row = 3, startFrame = 0, frameCount = 3, loop = true}
+        }
+        
+        local animation = Animation:new(spriteSheet, 32, 32, animations)
+        animation.frameDuration = 0.2 -- Slower animation for walking
+        player:addComponent("animation", animation)
+    end
 
     -- Add entity to systems after all initial components are added
     self.world:addEntityToSystems(player)
@@ -617,7 +654,7 @@ function GameState:draw()
     -- Draw grid background
     self:drawGridBackground()
     
-    -- Draw world
+    -- Draw world 
     if self.world then
         self.world:draw()
     end

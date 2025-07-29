@@ -60,8 +60,12 @@ function AssetManager:loadImages()
     self:loadImage("floor", "assets/images/tiles/Leafs.png")
     self:loadImage("indestructible", "assets/images/tiles/Tree.png")
     
+    -- Load tileset for background maps
+    self:loadImage("spring_tileset", "assets/images/tiles/Tileset_Spring.png")
+    
     -- Load player sprites
     self:loadImage("player", "assets/images/player/Chicken.png")
+    self:loadImage("player_spritesheet", "assets/images/player/character_1/character_1_frame32x32.png")
     self:loadImage("death", "assets/images/player/Death.png")
     
     -- Load bomb sprites
@@ -112,14 +116,13 @@ function AssetManager:getSound(name)
 end
 
 function AssetManager:loadImage(name, path)
-    if not self.images[name] then
-        local success, image = pcall(love.graphics.newImage, path)
-        if success then
-            self.images[name] = image
-        else
-            print("Warning: Could not load image: " .. path)
-            self.images[name] = nil
-        end
+    local success, image = pcall(love.graphics.newImage, path)
+    if success then
+        self.images[name] = image
+        print("[ASSET] Loaded image:", name, "from", path)
+    else
+        print("Warning: Could not load image: " .. path)
+        self.images[name] = nil
     end
     return self.images[name]
 end

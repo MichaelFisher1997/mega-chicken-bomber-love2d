@@ -17,9 +17,32 @@ function RenderingSystem:new()
 end
 
 function RenderingSystem:draw()
-    -- Draw all entities with transforms
+    -- Draw entities in layers for proper z-ordering
+    -- Layer 1: Tiles (walls, boxes, floors)
     for _, entity in pairs(self.entities) do
-        if entity.active then
+        if entity.active and (entity:hasTag("wall") or entity:hasTag("indestructible") or 
+                             entity:hasTag("box") or entity:hasTag("destroyed_box")) then
+            self:drawEntity(entity)
+        end
+    end
+    
+    -- Layer 2: Bombs and explosions
+    for _, entity in pairs(self.entities) do
+        if entity.active and (entity:hasTag("bomb") or entity:hasTag("explosion")) then
+            self:drawEntity(entity)
+        end
+    end
+    
+    -- Layer 3: Powerups
+    for _, entity in pairs(self.entities) do
+        if entity.active and entity:hasTag("powerup") then
+            self:drawEntity(entity)
+        end
+    end
+    
+    -- Layer 4: Player (topmost layer)
+    for _, entity in pairs(self.entities) do
+        if entity.active and entity:hasTag("player") then
             self:drawEntity(entity)
         end
     end
@@ -34,14 +57,6 @@ function RenderingSystem:drawEntity(entity)
     if entity:hasTag("player") then
         self:drawPlayer(entity, transform)
     elseif entity:hasTag("box") or entity:hasTag("destroyed_box") then
-        if entity:hasTag("destroyed_box") then
-            local destruction = entity:getComponent("destruction")
-            if destruction then
-                print("[RENDER] Drawing destroyed_box", entity.id, "progress:", destruction:getProgress(), "destroying:", destruction.isDestroying)
-            else
-                print("[RENDER] Drawing destroyed_box", entity.id, "but NO destruction component!")
-            end
-        end
         self:drawBox(entity, transform)
     elseif entity:hasTag("wall") then
         self:drawWall(entity, transform)
@@ -69,18 +84,38 @@ function RenderingSystem:drawPlayer(entity, transform)
         return
     end
     
-    -- Normal player rendering
-    local image = self.assetManager:getImage("player")
-    if image then
+    -- Check for animated sprite
+    local animation = entity:getComponent("animation")
+    if animation and animation.spriteSheet then
         love.graphics.setColor(1, 1, 1)
-        love.graphics.draw(image, transform.x, transform.y, 0,
-                          transform.width / image:getWidth(),
-                          transform.height / image:getHeight())
+        local quad = animation:getQuad()
+        
+        -- Scale sprite to be larger than the grid tile
+        local spriteScale = 1.5 -- Make sprite 50% larger
+        local scaleX = (transform.width / animation.frameWidth) * spriteScale
+        local scaleY = (transform.height / animation.frameHeight) * spriteScale
+        
+        -- Center the larger sprite on the tile
+        local offsetX = transform.width * (spriteScale - 1) / 2
+        local offsetY = transform.height * (spriteScale - 1) / 2
+        
+        love.graphics.draw(animation.spriteSheet, quad, 
+                          transform.x - offsetX, transform.y - offsetY, 
+                          0, scaleX, scaleY)
     else
-        -- Fallback to colored rectangle
-        love.graphics.setColor(Config.COLORS.PLAYER)
-        love.graphics.rectangle("fill", transform.x, transform.y,
-                               transform.width, transform.height)
+        -- Fallback to static player image
+        local image = self.assetManager:getImage("player")
+        if image then
+            love.graphics.setColor(1, 1, 1)
+            love.graphics.draw(image, transform.x, transform.y, 0,
+                              transform.width / image:getWidth(),
+                              transform.height / image:getHeight())
+        else
+            -- Fallback to colored rectangle
+            love.graphics.setColor(Config.COLORS.PLAYER)
+            love.graphics.rectangle("fill", transform.x, transform.y,
+                                   transform.width, transform.height)
+        end
     end
 end
 
